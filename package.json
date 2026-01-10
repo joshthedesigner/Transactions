@@ -13,6 +13,7 @@
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",
     "date-fns": "^3.3.1",
+    "dotenv": "^17.2.3",
     "natural": "^8.1.0",
     "next": "^14.2.0",
     "openai": "^4.52.0",
