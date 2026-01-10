@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import FileUpload from './FileUpload';
 import ReviewQueue from './ReviewQueue';
 import Analytics from './Analytics';
+import DashboardV2 from './DashboardV2';
 
 type Tab = 'upload' | 'review' | 'analytics' | 'dashboard';
 
