@@ -21,6 +21,7 @@ import {
   getSpendingByCategory,
   getTopMerchants,
   getSpendingOverTime,
+  getSpendingByCategoryOverTime,
   getRecentTransactions,
   getPaginatedTransactions,
   getAvailableCategories,
@@ -29,6 +30,7 @@ import {
   type CategorySpending,
   type MerchantSpending,
   type TimeSeriesData,
+  type CategoryTimeSeriesData,
   type TransactionRow,
   type DashboardFilters,
 } from '@/lib/actions/dashboard-v2';
@@ -61,6 +63,7 @@ export default function DashboardV2() {
   const [categoryData, setCategoryData] = useState<CategorySpending[]>([]);
   const [merchantData, setMerchantData] = useState<MerchantSpending[]>([]);
   const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesData[]>([]);
+  const [categoryTimeSeriesData, setCategoryTimeSeriesData] = useState<CategoryTimeSeriesData[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<TransactionRow[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [merchantSuggestions, setMerchantSuggestions] = useState<string[]>([]);
@@ -73,6 +76,7 @@ export default function DashboardV2() {
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [merchantSearch, setMerchantSearch] = useState<string>('');
   const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
+  const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(0);
@@ -104,6 +108,7 @@ export default function DashboardV2() {
         categoryResult,
         merchantResult,
         timeSeriesResult,
+        categoryTimeSeriesResult,
         recentResult,
         categoriesResult,
       ] = await Promise.all([
@@ -111,6 +116,7 @@ export default function DashboardV2() {
         getSpendingByCategory(activeFilters),
         getTopMerchants(20, activeFilters),
         getSpendingOverTime(timeGranularity, activeFilters),
+        getSpendingByCategoryOverTime(timeGranularity, activeFilters),
         getRecentTransactions(50, activeFilters),
         getAvailableCategories(),
       ]);
@@ -119,6 +125,7 @@ export default function DashboardV2() {
       setCategoryData(categoryResult);
       setMerchantData(merchantResult);
       setTimeSeriesData(timeSeriesResult);
+      setCategoryTimeSeriesData(categoryTimeSeriesResult);
       setRecentTransactions(recentResult);
       setAvailableCategories(categoriesResult);
     } catch (e) {
@@ -423,34 +430,105 @@ export default function DashboardV2() {
 
           {/* Spending Over Time - Line Chart */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">Spending Over Time</h2>
-            {timeSeriesData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={timeSeriesData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                  <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
-                  <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
-                    labelStyle={{ color: '#374151' }}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="total"
-                    stroke={CHART_COLORS.primary}
-                    strokeWidth={2}
-                    name="Total Spending"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="count"
-                    stroke={CHART_COLORS.secondary}
-                    strokeWidth={2}
-                    name="Transaction Count"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Spending Over Time</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setTimeViewMode('total')}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                    timeViewMode === 'total'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Total
+                </button>
+                <button
+                  onClick={() => setTimeViewMode('byCategory')}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                    timeViewMode === 'byCategory'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  By Category
+                </button>
+              </div>
+            </div>
+            {timeViewMode === 'total' ? (
+              timeSeriesData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={timeSeriesData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                    <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
+                    <Tooltip
+                      formatter={(value: number) => formatCurrency(value)}
+                      labelStyle={{ color: '#374151' }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="total"
+                      stroke={CHART_COLORS.primary}
+                      strokeWidth={2}
+                      name="Total Spending"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke={CHART_COLORS.secondary}
+                      strokeWidth={2}
+                      name="Transaction Count"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-gray-500">
+                  No data available
+                </div>
+              )
+            ) : categoryTimeSeriesData.length > 0 ? (
+              (() => {
+                // Get all unique categories from the time series data (excluding 'period')
+                const categories = categoryTimeSeriesData.length > 0
+                  ? Object.keys(categoryTimeSeriesData[0]).filter(key => key !== 'period')
+                  : [];
+                // Limit to top 10 categories by total spending for readability
+                const topCategories = categories
+                  .map(cat => ({
+                    name: cat,
+                    total: categoryTimeSeriesData.reduce((sum, d) => sum + (Number(d[cat]) || 0), 0),
+                  }))
+                  .sort((a, b) => b.total - a.total)
+                  .slice(0, 10)
+                  .map(c => c.name);
+
+                return (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={categoryTimeSeriesData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                      <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
+                      <Tooltip
+                        formatter={(value: number) => formatCurrency(value)}
+                        labelStyle={{ color: '#374151' }}
+                      />
+                      <Legend />
+                      {topCategories.map((cat, idx) => (
+                        <Line
+                          key={cat}
+                          type="monotone"
+                          dataKey={cat}
+                          stroke={COLORS[idx % COLORS.length]}
+                          strokeWidth={2}
+                          name={cat}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                );
+              })()
             ) : (
               <div className="h-[300px] flex items-center justify-center text-gray-500">
                 No data available

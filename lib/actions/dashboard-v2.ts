@@ -34,6 +34,11 @@ export type TimeSeriesData = {
   count: number;
 };
 
+export type CategoryTimeSeriesData = {
+  period: string;
+  [category: string]: string | number; // Dynamic category keys with amounts
+};
+
 export type TransactionRow = {
   id: number;
   date: string;
@@ -321,6 +326,74 @@ export async function getSpendingOverTime(
       total: stats.total,
       count: stats.count,
     }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+
+  return result;
+}
+
+// ============================================================================
+// 4B. SPENDING BY CATEGORY OVER TIME
+// ============================================================================
+
+export async function getSpendingByCategoryOverTime(
+  granularity: 'monthly' | 'weekly' = 'monthly',
+  filters: DashboardFilters = {}
+): Promise<CategoryTimeSeriesData[]> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  const baseQuery = buildBaseQuery(supabase, userId, filters);
+  const transactions = await paginateQuery<any>(baseQuery);
+
+  // Group by period and category
+  const periodMap = new Map<string, Map<string, number>>();
+
+  transactions.forEach((t) => {
+    const date = new Date(t.transaction_date);
+    let period: string;
+
+    if (granularity === 'monthly') {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      period = `${year}-${month}`;
+    } else {
+      // Weekly: YYYY-WW format
+      const year = date.getFullYear();
+      const startOfYear = new Date(year, 0, 1);
+      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+      const week = Math.floor(days / 7) + 1;
+      period = `${year}-W${String(week).padStart(2, '0')}`;
+    }
+
+    const category = t.category || 'Uncategorized';
+    const amount = Number(t.amount_spending || 0);
+
+    if (!periodMap.has(period)) {
+      periodMap.set(period, new Map());
+    }
+
+    const categoryMap = periodMap.get(period)!;
+    const currentAmount = categoryMap.get(category) || 0;
+    categoryMap.set(category, currentAmount + amount);
+  });
+
+  // Get all unique categories across all periods
+  const allCategories = new Set<string>();
+  periodMap.forEach((categoryMap) => {
+    categoryMap.forEach((_, category) => {
+      allCategories.add(category);
+    });
+  });
+
+  // Convert to array format with all categories as keys
+  const result: CategoryTimeSeriesData[] = Array.from(periodMap.entries())
+    .map(([period, categoryMap]) => {
+      const data: CategoryTimeSeriesData = { period };
+      allCategories.forEach((category) => {
+        data[category] = categoryMap.get(category) || 0;
+      });
+      return data;
+    })
     .sort((a, b) => a.period.localeCompare(b.period));
 
   return result;
