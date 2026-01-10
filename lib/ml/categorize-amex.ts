@@ -38,28 +38,46 @@ export type CategorizationSummary = {
 async function fetchTrainingData(userId: string): Promise<TrainingSample[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  // Fetch transactions
+  const { data: transactions, error: transError } = await supabase
     .from('transactions_v2')
     .select(`
       merchant,
       amount_raw,
-      category_id,
-      category:categories(id, name)
+      category_id
     `)
     .eq('user_id', userId)
     .like('source_filename', 'Chase%')
     .not('category_id', 'is', null)
     .gt('amount_spending', 0); // Only spending transactions
 
-  if (error) {
-    throw new Error(`Failed to fetch training data: ${error.message}`);
+  if (transError) {
+    throw new Error(`Failed to fetch training data: ${transError.message}`);
   }
 
-  return (data || []).map((t) => ({
+  if (!transactions || transactions.length === 0) {
+    return [];
+  }
+
+  // Fetch categories separately
+  const { data: categories, error: catError } = await supabase
+    .from('categories')
+    .select('id, name');
+
+  if (catError) {
+    throw new Error(`Failed to fetch categories: ${catError.message}`);
+  }
+
+  // Create category map
+  const categoryMap = new Map(
+    (categories || []).map((c) => [c.id, c.name])
+  );
+
+  return (transactions || []).map((t) => ({
     merchant: t.merchant || '',
     amount: Number(t.amount_raw) || 0,
     categoryId: t.category_id!,
-    categoryName: (t.category as any)?.name || 'Misc',
+    categoryName: categoryMap.get(t.category_id!) || 'Misc',
   }));
 }
 
