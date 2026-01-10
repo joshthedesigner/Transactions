@@ -498,7 +498,7 @@ export default function DashboardV2() {
         {/* Spending by Category and Top Merchants - Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Spending by Category - Bar Chart */}
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2">
             <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
             {categoryData.length > 0 ? (
               <ResponsiveContainer width="100%" height={450}>
@@ -527,7 +527,7 @@ export default function DashboardV2() {
           </div>
 
           {/* Top Merchants */}
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2">
             <h2 className="text-xl font-semibold mb-4">Top Merchants</h2>
             {merchantData.length > 0 ? (
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
