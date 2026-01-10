@@ -5,6 +5,7 @@ import { parseFile } from '@/lib/utils/csv-parser';
 import { detectColumns } from '@/lib/utils/column-detector';
 import { normalizeTransactions } from '@/lib/utils/normalizer';
 import { detectAmountConvention } from '@/lib/utils/amount-convention-detector';
+import { categorizeTransactions } from '@/lib/utils/categorization/pipeline';
 import {
   TransactionV2Insert,
   calculateSpendingAmount,
@@ -191,11 +192,37 @@ async function processSingleFile(
     };
   }
 
+  // Step 5.5: Categorize transactions
+  let categorizationResults: Array<{ categoryId: number | null; categoryName: string | null }> = [];
+  try {
+    const catResults = await categorizeTransactions(normalizedRows, userId);
+    // Get category names for mapping
+    const { data: categories } = await supabase
+      .from('categories')
+      .select('id, name');
+    
+    const categoryMap = new Map(
+      (categories || []).map((c) => [c.id, c.name])
+    );
+
+    categorizationResults = catResults.map((result) => ({
+      categoryId: result.categoryId,
+      categoryName: result.categoryId ? categoryMap.get(result.categoryId) || null : null,
+    }));
+  } catch (error) {
+    // If categorization fails, continue without categories
+    console.warn('Categorization failed, continuing without categories:', error);
+    categorizationResults = normalizedRows.map(() => ({ categoryId: null, categoryName: null }));
+  }
+
   // Step 6: Build TransactionV2Insert records
   const transactionsToInsert: TransactionV2Insert[] = [];
   const errors: string[] = [];
 
-  for (const row of normalizedRows) {
+  for (let i = 0; i < normalizedRows.length; i++) {
+    const row = normalizedRows[i];
+    const catResult = categorizationResults[i] || { categoryId: null, categoryName: null };
+    
     try {
       const rawAmount = row.amount;
       const spendingAmount = calculateSpendingAmount(rawAmount, amountConvention);
@@ -215,7 +242,7 @@ async function processSingleFile(
         amount_convention: amountConvention,
         is_credit: isCredit,
         is_payment: isPayment,
-        category: null,
+        category: catResult.categoryName, // Use category name (TEXT) for transactions_v2
         notes: row.merchant !== merchantNormalized ? row.merchant : null,
       };
 
