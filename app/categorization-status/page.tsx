@@ -211,7 +211,7 @@ export default function CategorizationStatusPage() {
             <div className="bg-white rounded-lg shadow p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">📁 Transactions by Category</h2>
-                {data.byCategory.some((cat: any) => cat.name === 'misc' && cat.count > 0) && (
+                {data.byCategory.some((cat: any) => cat.name?.toLowerCase() === 'misc' && cat.count > 0) && (
                   <a
                     href="/analyze-misc"
                     className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm font-semibold"

@@ -35,7 +35,7 @@ export default function AnalyzeMiscPage() {
             .from('transactions_v2')
             .select('id, category, source_filename, merchant, amount_spending, transaction_date, notes')
             .eq('user_id', user.id)
-            .eq('category', 'misc')
+            .ilike('category', 'misc') // Case-insensitive match for "Misc", "misc", "MISC", etc.
             .gt('amount_spending', 0)
             .order('amount_spending', { ascending: false })
             .range(page * pageSize, (page + 1) * pageSize - 1);
