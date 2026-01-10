@@ -7,7 +7,7 @@ import FileUpload from './FileUpload';
 import ReviewQueue from './ReviewQueue';
 import Analytics from './Analytics';
 
-type Tab = 'upload' | 'review' | 'analytics';
+type Tab = 'upload' | 'review' | 'analytics' | 'dashboard';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>('upload');
@@ -89,6 +89,16 @@ export default function Dashboard() {
                 >
                   Analytics
                 </button>
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`px-3 py-2 rounded-md text-sm font-medium ${
+                    activeTab === 'dashboard'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Dashboard
+                </button>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -108,6 +118,7 @@ export default function Dashboard() {
         {activeTab === 'upload' && <FileUpload />}
         {activeTab === 'review' && <ReviewQueue />}
         {activeTab === 'analytics' && <Analytics />}
+        {activeTab === 'dashboard' && <DashboardV2 />}
       </main>
     </div>
   );
