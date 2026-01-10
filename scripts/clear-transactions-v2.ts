@@ -1,30 +1,24 @@
 /**
  * Script to clear all transactions from transactions_v2 table
  * 
- * Usage:
- *   npx tsx scripts/clear-transactions-v2.ts [--confirm]
+ * EASIEST METHOD: Use the SQL script instead!
+ * Run scripts/clear-transactions-v2.sql in Supabase SQL Editor
  * 
- * WARNING: This will delete ALL transactions for the current user!
+ * Alternative: This TypeScript script (requires service role key)
  */
 
-import { createClient } from '../lib/supabase/server';
+console.log('📝 EASIEST METHOD: Use SQL script!');
+console.log('\n   1. Open Supabase SQL Editor');
+console.log('   2. Open file: scripts/clear-transactions-v2.sql');
+console.log('   3. Follow the instructions in that file');
+console.log('\n   OR use the SQL directly:');
+console.log('\n   -- Get your user ID:');
+console.log('   SELECT id, email FROM auth.users ORDER BY created_at DESC LIMIT 1;');
+console.log('\n   -- Delete transactions (replace YOUR_USER_ID_HERE):');
+console.log('   DELETE FROM transactions_v2 WHERE user_id = \'YOUR_USER_ID_HERE\';');
+console.log('\n✨ See scripts/clear-transactions-v2.sql for complete instructions');
 
-async function main() {
-  const args = process.argv.slice(2);
-  const confirmed = args.includes('--confirm');
-
-  if (!confirmed) {
-    console.log('⚠️  WARNING: This will delete ALL transactions from transactions_v2!');
-    console.log('   Run with --confirm flag to proceed:');
-    console.log('   npx tsx scripts/clear-transactions-v2.ts --confirm');
-    process.exit(1);
-  }
-
-  console.log('🗑️  Clearing transactions_v2 table...\n');
-
-  try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+process.exit(0);
 
     if (authError || !user) {
       throw new Error('Not authenticated. Please ensure you are logged in.');
