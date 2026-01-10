@@ -11,14 +11,12 @@ import { TfIdf } from 'natural';
 export type TrainingSample = {
   merchant: string;
   amount: number;
-  categoryId: number;
-  categoryName: string;
+  categoryName: string; // transactions_v2 uses category (TEXT), not category_id
 };
 
 export type PredictionResult = {
   transactionId: number;
-  predictedCategoryId: number;
-  predictedCategoryName: string;
+  predictedCategoryName: string; // transactions_v2 uses category (TEXT), not category_id
   confidence: number;
   lowConfidence: boolean;
 };
@@ -39,16 +37,17 @@ async function fetchTrainingData(userId: string): Promise<TrainingSample[]> {
   const supabase = await createClient();
 
   // Fetch transactions
+  // Note: transactions_v2 uses 'category' (TEXT), not 'category_id' (INTEGER)
   const { data: transactions, error: transError } = await supabase
     .from('transactions_v2')
     .select(`
       merchant,
       amount_raw,
-      category_id
+      category
     `)
     .eq('user_id', userId)
     .like('source_filename', 'Chase%')
-    .not('category_id', 'is', null)
+    .not('category', 'is', null)
     .gt('amount_spending', 0); // Only spending transactions
 
   if (transError) {
@@ -59,25 +58,10 @@ async function fetchTrainingData(userId: string): Promise<TrainingSample[]> {
     return [];
   }
 
-  // Fetch categories separately
-  const { data: categories, error: catError } = await supabase
-    .from('categories')
-    .select('id, name');
-
-  if (catError) {
-    throw new Error(`Failed to fetch categories: ${catError.message}`);
-  }
-
-  // Create category map
-  const categoryMap = new Map(
-    (categories || []).map((c) => [c.id, c.name])
-  );
-
   return (transactions || []).map((t) => ({
     merchant: t.merchant || '',
     amount: Number(t.amount_raw) || 0,
-    categoryId: t.category_id!,
-    categoryName: categoryMap.get(t.category_id!) || 'Misc',
+    categoryName: (t.category as string) || 'Misc',
   }));
 }
 
@@ -97,7 +81,7 @@ async function fetchUncategorizedAmex(userId: string) {
     `)
     .eq('user_id', userId)
     .like('source_filename', 'Amex%')
-    .is('category_id', null)
+    .is('category', null) // transactions_v2 uses 'category' (TEXT), not 'category_id'
     .gt('amount_spending', 0);
 
   if (error) {
@@ -191,36 +175,36 @@ function cosineSimilarity(vec1: number[], vec2: number[]): number {
 function predictCategory(
   features: number[],
   trainingFeatures: number[][],
-  trainingCategories: number[],
+  trainingCategories: string[], // Category names, not IDs
   k: number = 5
-): { categoryId: number; confidence: number } {
+): { categoryName: string; confidence: number } {
   // Calculate distances to all training samples
   const distances = trainingFeatures.map((trainFeatures, idx) => ({
     distance: 1 - cosineSimilarity(features, trainFeatures), // Convert similarity to distance
-    categoryId: trainingCategories[idx],
+    categoryName: trainingCategories[idx],
   }));
 
   // Sort by distance and get k nearest neighbors
   distances.sort((a, b) => a.distance - b.distance);
   const neighbors = distances.slice(0, k);
 
-  // Count votes by category
-  const votes = new Map<number, number>();
+  // Count votes by category name
+  const votes = new Map<string, number>();
   neighbors.forEach((neighbor) => {
     const weight = 1 / (neighbor.distance + 0.001); // Weighted by inverse distance
     votes.set(
-      neighbor.categoryId,
-      (votes.get(neighbor.categoryId) || 0) + weight
+      neighbor.categoryName,
+      (votes.get(neighbor.categoryName) || 0) + weight
     );
   });
 
   // Find category with most votes
   let maxVotes = 0;
-  let predictedCategory = trainingCategories[0]; // Default to first category
-  for (const [categoryId, voteCount] of votes.entries()) {
+  let predictedCategory = trainingCategories[0] || 'Misc'; // Default to first category
+  for (const [categoryName, voteCount] of votes.entries()) {
     if (voteCount > maxVotes) {
       maxVotes = voteCount;
-      predictedCategory = categoryId;
+      predictedCategory = categoryName;
     }
   }
 
@@ -229,7 +213,7 @@ function predictCategory(
   const confidence = totalWeight > 0 ? maxVotes / totalWeight : 0.5;
 
   return {
-    categoryId: predictedCategory,
+    categoryName: predictedCategory,
     confidence: Math.min(1.0, confidence),
   };
 }
@@ -255,18 +239,6 @@ export async function categorizeAmexTransactions(
 
   console.log(`✅ Found ${trainingData.length} training samples`);
 
-  // Get unique categories
-  const supabase = await createClient();
-  const { data: categories } = await supabase
-    .from('categories')
-    .select('*');
-
-  if (!categories || categories.length === 0) {
-    throw new Error('No categories found in database');
-  }
-
-  const categoryMap = new Map(categories.map((c) => [c.id, c.name]));
-
   console.log('🔧 Building TF-IDF model...');
   
   // Prepare merchant names for TF-IDF
@@ -280,7 +252,7 @@ export async function categorizeAmexTransactions(
   const trainingFeatures = trainingData.map((sample) =>
     extractFeatures(sample.merchant, sample.amount, tfidf, trainingMerchants)
   );
-  const trainingCategories = trainingData.map((sample) => sample.categoryId);
+  const trainingCategories = trainingData.map((sample) => sample.categoryName); // Use category names
 
   console.log('📥 Fetching uncategorized Amex transactions...');
   const uncategorized = await fetchUncategorizedAmex(userId);
@@ -314,12 +286,10 @@ export async function categorizeAmexTransactions(
     );
 
     const prediction = predictCategory(features, trainingFeatures, trainingCategories);
-    const categoryName = categoryMap.get(prediction.categoryId) || 'Misc';
 
     predictions.push({
       transactionId: transaction.id,
-      predictedCategoryId: prediction.categoryId,
-      predictedCategoryName: categoryName,
+      predictedCategoryName: prediction.categoryName,
       confidence: prediction.confidence,
       lowConfidence: prediction.confidence < confidenceThreshold,
     });
@@ -363,14 +333,14 @@ function generateUpdateSQL(
     .filter((p) => !p.lowConfidence)
     .map(
       (p) =>
-        `UPDATE transactions_v2 SET category_id = ${p.predictedCategoryId} WHERE id = ${p.transactionId};`
+        `UPDATE transactions_v2 SET category = '${p.predictedCategoryName.replace(/'/g, "''")}' WHERE id = ${p.transactionId};`
     );
 
   const lowConfidenceUpdates = predictions
     .filter((p) => p.lowConfidence)
     .map(
       (p) =>
-        `-- Low confidence (${(p.confidence * 100).toFixed(1)}%): UPDATE transactions_v2 SET category_id = ${p.predictedCategoryId} WHERE id = ${p.transactionId};`
+        `-- Low confidence (${(p.confidence * 100).toFixed(1)}%): UPDATE transactions_v2 SET category = '${p.predictedCategoryName.replace(/'/g, "''")}' WHERE id = ${p.transactionId};`
     );
 
   return `-- High Confidence Predictions (>= ${(confidenceThreshold * 100).toFixed(0)}%)
@@ -427,7 +397,7 @@ export async function applyAmexCategoryPredictions(
   for (const prediction of updates) {
     const { error } = await supabase
       .from('transactions_v2')
-      .update({ category_id: prediction.predictedCategoryId })
+      .update({ category: prediction.predictedCategoryName })
       .eq('id', prediction.transactionId)
       .eq('user_id', user.id);
 
@@ -444,7 +414,7 @@ export async function applyAmexCategoryPredictions(
     for (const prediction of lowConfidenceUpdates) {
       const { error } = await supabase
         .from('transactions_v2')
-        .update({ category_id: prediction.predictedCategoryId })
+        .update({ category: prediction.predictedCategoryName })
         .eq('id', prediction.transactionId)
         .eq('user_id', user.id);
 

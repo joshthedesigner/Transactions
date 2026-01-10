@@ -71,7 +71,7 @@ export async function applyAmexCategories(
     for (const prediction of updatesToApply) {
       const { error } = await supabase
         .from('transactions_v2')
-        .update({ category_id: prediction.predictedCategoryId })
+        .update({ category: prediction.predictedCategoryName })
         .eq('id', prediction.transactionId)
         .eq('user_id', user.id);
 
