@@ -424,7 +424,7 @@ export default function DashboardV2() {
             {timeViewMode === 'total' ? (
               timeSeriesData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={timeSeriesData}>
+                  <LineChart data={timeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" tick={{ fontSize: 12 }} />
                     <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
@@ -465,7 +465,7 @@ export default function DashboardV2() {
 
                 return (
                   <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={categoryTimeSeriesData}>
+                    <LineChart data={categoryTimeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="period" tick={{ fontSize: 12 }} />
                       <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
@@ -502,7 +502,7 @@ export default function DashboardV2() {
             <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
             {categoryData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={categoryData}>
+                <BarChart data={categoryData} margin={{ left: 10, right: 10, top: 5, bottom: 100 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="category"
