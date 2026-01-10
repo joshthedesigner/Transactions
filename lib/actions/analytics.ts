@@ -26,7 +26,7 @@ export type CategoryTrend = {
 export async function getMonthlySpendByCategory(
   startDate?: string,
   endDate?: string,
-  categoryId?: number
+  categoryName?: string
 ): Promise<MonthlySpendByCategory[]> {
   const supabase = await createClient();
 
@@ -40,8 +40,7 @@ export async function getMonthlySpendByCategory(
     .select(`
       transaction_date,
       amount_spending,
-      category_id,
-      category:categories(id, name)
+      category
     `)
     .eq('user_id', user.id)
     .gt('amount_spending', 0) // Only spending transactions
@@ -55,8 +54,8 @@ export async function getMonthlySpendByCategory(
     query = query.lte('transaction_date', endDate);
   }
 
-  if (categoryId) {
-    query = query.eq('category_id', categoryId);
+  if (categoryName) {
+    query = query.eq('category', categoryName);
   }
 
   const { data, error } = await query;
@@ -70,7 +69,7 @@ export async function getMonthlySpendByCategory(
 
   data?.forEach((transaction) => {
     const month = format(new Date(transaction.transaction_date), 'yyyy-MM');
-    const categoryName = (transaction.category as any)?.name || 'Uncategorized';
+    const categoryName = transaction.category || 'Uncategorized';
     const spendingAmount = Number(transaction.amount_spending);
 
     if (!grouped.has(month)) {
@@ -104,7 +103,7 @@ export async function getMonthlySpendByCategory(
 export async function getTotalSpendOverTime(
   startDate?: string,
   endDate?: string,
-  categoryId?: number
+  categoryName?: string
 ): Promise<TotalSpendOverTime[]> {
   const supabase = await createClient();
 
@@ -117,8 +116,7 @@ export async function getTotalSpendOverTime(
     .from('transactions_v2')
     .select(`
       transaction_date,
-      amount_spending,
-      category_id
+      amount_spending
     `)
     .eq('user_id', user.id)
     .gt('amount_spending', 0) // Only spending transactions
@@ -132,8 +130,8 @@ export async function getTotalSpendOverTime(
     query = query.lte('transaction_date', endDate);
   }
 
-  if (categoryId) {
-    query = query.eq('category_id', categoryId);
+  if (categoryName) {
+    query = query.eq('category', categoryName);
   }
 
   const { data, error } = await query;
@@ -168,7 +166,7 @@ export async function getTotalSpendOverTime(
  * Uses transactions_v2 as the single source of truth
  */
 export async function getCategoryTrend(
-  categoryId: number,
+  categoryName: string,
   startDate?: string,
   endDate?: string
 ): Promise<CategoryTrend[]> {
@@ -187,7 +185,7 @@ export async function getCategoryTrend(
     `)
     .eq('user_id', user.id)
     .gt('amount_spending', 0) // Only spending transactions
-    .eq('category_id', categoryId);
+    .eq('category', categoryName);
 
   if (startDate) {
     query = query.gte('transaction_date', startDate);
@@ -229,8 +227,7 @@ export type FilteredTransaction = {
   date: string;
   merchant: string;
   amount: number;
-  category_id: number | null;
-  category_name: string | null;
+  category: string | null;
   notes: string | null;
 };
 
@@ -241,7 +238,7 @@ export type FilteredTransaction = {
 export async function getFilteredTransactions(
   startDate?: string,
   endDate?: string,
-  categoryId?: number,
+  categoryName?: string,
   merchant?: string
 ): Promise<FilteredTransaction[]> {
   const supabase = await createClient();
@@ -258,9 +255,8 @@ export async function getFilteredTransactions(
       transaction_date,
       merchant,
       amount_spending,
-      category_id,
-      notes,
-      category:categories(id, name)
+      category,
+      notes
     `)
     .eq('user_id', user.id)
     .gt('amount_spending', 0) // Only spending transactions
@@ -274,8 +270,8 @@ export async function getFilteredTransactions(
     query = query.lte('transaction_date', endDate);
   }
 
-  if (categoryId) {
-    query = query.eq('category_id', categoryId);
+  if (categoryName) {
+    query = query.eq('category', categoryName);
   }
 
   if (merchant) {
@@ -293,9 +289,8 @@ export async function getFilteredTransactions(
     date: transaction.transaction_date,
     merchant: transaction.merchant,
     amount: Number(transaction.amount_spending),
-    category_id: transaction.category_id,
-    category_name: (transaction.category as any)?.name || null,
-    notes: transaction.notes,
+    category: transaction.category || null,
+    notes: transaction.notes || null,
   }));
 }
 
@@ -316,7 +311,7 @@ export type SummaryMetrics = {
 export async function getSummaryMetrics(
   startDate?: string,
   endDate?: string,
-  categoryId?: number,
+  categoryName?: string,
   merchant?: string
 ): Promise<SummaryMetrics> {
   const supabase = await createClient();
@@ -330,8 +325,7 @@ export async function getSummaryMetrics(
     .from('transactions_v2')
     .select(`
       amount_spending,
-      category_id,
-      category:categories(id, name)
+      category
     `)
     .eq('user_id', user.id)
     .gt('amount_spending', 0) // Only spending transactions
@@ -345,8 +339,8 @@ export async function getSummaryMetrics(
     query = query.lte('transaction_date', endDate);
   }
 
-  if (categoryId) {
-    query = query.eq('category_id', categoryId);
+  if (categoryName) {
+    query = query.eq('category', categoryName);
   }
 
   if (merchant) {
@@ -376,7 +370,7 @@ export async function getSummaryMetrics(
   // Find top category
   const categoryTotals = new Map<string, number>();
   data.forEach((transaction) => {
-    const categoryName = (transaction.category as any)?.name || 'Uncategorized';
+    const categoryName = transaction.category || 'Uncategorized';
     const spendingAmount = Number(transaction.amount_spending);
     const currentTotal = categoryTotals.get(categoryName) || 0;
     categoryTotals.set(categoryName, currentTotal + spendingAmount);

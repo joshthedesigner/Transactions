@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { TransactionWithCategory, Category } from '@/lib/types/database';
+import { Category } from '@/lib/types/database';
 import {
   getReviewQueue,
   getCategories,
@@ -9,23 +9,24 @@ import {
   changeTransactionCategory,
   bulkApplyCategory,
   acceptAllTransactions,
+  type ReviewQueueTransaction,
 } from '@/lib/actions/review-queue';
 import { format } from 'date-fns';
 
 interface ReviewQueueProps {
   onComplete?: () => void;
   autoRefresh?: boolean;
-  failedOnly?: boolean; // If true, only show transactions that failed import
+  failedOnly?: boolean; // Not used in v2, kept for compatibility
 }
 
 export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnly = false }: ReviewQueueProps) {
-  const [transactions, setTransactions] = useState<TransactionWithCategory[]>([]);
+  const [transactions, setTransactions] = useState<ReviewQueueTransaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<number | null>(null);
-  const [newCategoryId, setNewCategoryId] = useState<number | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState<string>('');
   const [bulkMerchant, setBulkMerchant] = useState<string | null>(null);
-  const [bulkCategoryId, setBulkCategoryId] = useState<number | null>(null);
+  const [bulkCategoryName, setBulkCategoryName] = useState<string>('');
 
   useEffect(() => {
     loadData();
@@ -96,14 +97,14 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
   };
 
   const handleChangeCategory = async (transactionId: number) => {
-    if (!newCategoryId) return;
+    if (!newCategoryName) return;
 
     try {
-      await changeTransactionCategory(transactionId, newCategoryId);
+      await changeTransactionCategory(transactionId, newCategoryName);
       const [transactionsData] = await Promise.all([getReviewQueue(failedOnly)]);
       setTransactions(transactionsData);
       setSelectedTransaction(null);
-      setNewCategoryId(null);
+      setNewCategoryName('');
       
       if (transactionsData.length === 0 && onComplete) {
         setTimeout(() => {
@@ -118,14 +119,14 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
   };
 
   const handleBulkApply = async () => {
-    if (!bulkMerchant || !bulkCategoryId) return;
+    if (!bulkMerchant || !bulkCategoryName) return;
 
     try {
-      const count = await bulkApplyCategory(bulkMerchant, bulkCategoryId);
+      const count = await bulkApplyCategory(bulkMerchant, bulkCategoryName);
       const [transactionsData] = await Promise.all([getReviewQueue(failedOnly)]);
       setTransactions(transactionsData);
       setBulkMerchant(null);
-      setBulkCategoryId(null);
+      setBulkCategoryName('');
       
       if (transactionsData.length === 0 && onComplete) {
         setTimeout(() => {
@@ -146,10 +147,6 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
     }).format(amount);
   };
 
-  const formatConfidence = (score: number | null) => {
-    if (score === null) return 'N/A';
-    return `${(score * 100).toFixed(0)}%`;
-  };
 
   if (loading) {
     return (
@@ -202,55 +199,25 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center space-x-4 mb-2">
-                  <h3 className="font-semibold text-lg">{transaction.merchant || transaction.merchant_raw}</h3>
+                  <h3 className="font-semibold text-lg">{transaction.merchant}</h3>
                   <span className="text-sm text-gray-500">
-                    {format(new Date(transaction.date || transaction.transaction_date), 'MMM d, yyyy')}
+                    {format(new Date(transaction.date), 'MMM d, yyyy')}
                   </span>
                   <span className="text-lg font-bold">
-                    {formatAmount(transaction.amount || transaction.amount_spending || 0)}
+                    {formatAmount(transaction.amount)}
                   </span>
                 </div>
-
-                {(transaction as any).import_error_reason && (
-                  <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-md">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-red-600 font-semibold">Import Error:</span>
-                      <span className="text-red-800 capitalize">
-                        {(transaction as any).import_error_reason?.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                    {(transaction as any).import_error_message && (
-                      <p className="text-sm text-red-700">
-                        {(transaction as any).import_error_message}
-                      </p>
-                    )}
-                  </div>
-                )}
                 <div className="flex items-center space-x-4 text-sm text-gray-600">
                   <div>
-                    <span className="font-medium">Suggested:</span>{' '}
-                    {transaction.category?.name || 'None'}
+                    <span className="font-medium">Category:</span>{' '}
+                    {transaction.category || 'Uncategorized'}
                   </div>
-                  {transaction.confidence_score !== null && (
+                  {transaction.notes && (
                     <div>
-                      <span className="font-medium">Confidence:</span>{' '}
-                      <span
-                        className={
-                          (transaction.confidence_score || 0) >= 0.75
-                            ? 'text-green-600'
-                            : (transaction.confidence_score || 0) >= 0.5
-                            ? 'text-yellow-600'
-                            : 'text-red-600'
-                        }
-                      >
-                        {formatConfidence(transaction.confidence_score)}
-                      </span>
+                      <span className="font-medium">Notes:</span>{' '}
+                      <span className="text-gray-500">{transaction.notes}</span>
                     </div>
                   )}
-                  <div>
-                    <span className="font-medium">Merchant:</span>{' '}
-                    <span className="text-gray-500">{transaction.merchant || transaction.merchant_normalized}</span>
-                  </div>
                 </div>
               </div>
 
@@ -264,7 +231,7 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
                 <button
                   onClick={() => {
                     setSelectedTransaction(transaction.id);
-                    setNewCategoryId(transaction.category_id || null);
+                    setNewCategoryName(transaction.category || '');
                   }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
                 >
@@ -272,8 +239,8 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
                 </button>
                 <button
                   onClick={() => {
-                    setBulkMerchant(transaction.merchant || transaction.merchant_normalized);
-                    setBulkCategoryId(transaction.category_id || null);
+                    setBulkMerchant(transaction.merchant);
+                    setBulkCategoryName(transaction.category || '');
                   }}
                   className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm font-medium"
                 >
@@ -289,20 +256,20 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
                 </label>
                 <div className="flex items-center space-x-2">
                   <select
-                    value={newCategoryId || ''}
-                    onChange={(e) => setNewCategoryId(Number(e.target.value))}
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select category...</option>
                     {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
+                      <option key={cat.id} value={cat.name}>
                         {cat.name}
                       </option>
                     ))}
                   </select>
                   <button
                     onClick={() => handleChangeCategory(transaction.id)}
-                    disabled={!newCategoryId}
+                    disabled={!newCategoryName}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Save
@@ -310,7 +277,7 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
                   <button
                     onClick={() => {
                       setSelectedTransaction(null);
-                      setNewCategoryId(null);
+                      setNewCategoryName('');
                     }}
                     className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
                   >
@@ -335,13 +302,13 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
               Category:
             </label>
             <select
-              value={bulkCategoryId || ''}
-              onChange={(e) => setBulkCategoryId(Number(e.target.value))}
+              value={bulkCategoryName}
+              onChange={(e) => setBulkCategoryName(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
             >
               <option value="">Select category...</option>
               {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
+                <option key={cat.id} value={cat.name}>
                   {cat.name}
                 </option>
               ))}
@@ -350,7 +317,7 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
               <button
                 onClick={() => {
                   setBulkMerchant(null);
-                  setBulkCategoryId(null);
+                  setBulkCategoryName('');
                 }}
                 className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
               >
@@ -358,7 +325,7 @@ export default function ReviewQueue({ onComplete, autoRefresh = false, failedOnl
               </button>
               <button
                 onClick={handleBulkApply}
-                disabled={!bulkCategoryId}
+                disabled={!bulkCategoryName}
                 className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Apply to All

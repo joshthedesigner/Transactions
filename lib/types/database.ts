@@ -22,6 +22,10 @@ export type MerchantRule = {
   user_id: string;
 };
 
+/**
+ * @deprecated This type is for the legacy `transactions` table which is no longer used.
+ * Use `TransactionV2` and `TransactionV2Insert` from '@/lib/types/transactions-v2' instead.
+ */
 export type Transaction = {
   id: number;
   date: string;
@@ -38,7 +42,10 @@ export type Transaction = {
   import_error_message?: string | null;
 };
 
-// Helper type for transactions with category name
+/**
+ * @deprecated This type is for the legacy `transactions` table which is no longer used.
+ * Use `TransactionV2` from '@/lib/types/transactions-v2' instead.
+ */
 export type TransactionWithCategory = Transaction & {
   category?: {
     id: number;
