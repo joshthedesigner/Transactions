@@ -397,39 +397,8 @@ export default function DashboardV2() {
           </div>
         </div>
 
-        {/* Charts Row 1 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* Spending by Category - Bar Chart */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
-            {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={categoryData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="category"
-                    angle={-45}
-                    textAnchor="end"
-                    height={100}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
-                  <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
-                    labelStyle={{ color: '#374151' }}
-                  />
-                  <Bar dataKey="total" fill={CHART_COLORS.primary} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-gray-500">
-                No data available
-              </div>
-            )}
-          </div>
-
-          {/* Spending Over Time - Line Chart */}
-          <div className="bg-white rounded-lg shadow p-6">
+        {/* Spending Over Time - Full Width Line Chart */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Spending Over Time</h2>
               <div className="flex items-center gap-2">
@@ -535,32 +504,30 @@ export default function DashboardV2() {
               </div>
             )}
           </div>
-        </div>
 
-        {/* Charts Row 2 */}
+        {/* Spending by Category and Top Merchants - Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* Category Pie Chart */}
+          {/* Spending by Category - Bar Chart */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">Category Distribution</h2>
+            <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
             {categoryData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ category, percentage }) => `${category}: ${percentage.toFixed(1)}%`}
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="total"
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                </PieChart>
+                <BarChart data={categoryData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="category"
+                    angle={-45}
+                    textAnchor="end"
+                    height={100}
+                    tick={{ fontSize: 12 }}
+                  />
+                  <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                    labelStyle={{ color: '#374151' }}
+                  />
+                  <Bar dataKey="total" fill={CHART_COLORS.primary} />
+                </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="h-[300px] flex items-center justify-center text-gray-500">
