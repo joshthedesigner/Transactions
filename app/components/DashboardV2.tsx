@@ -440,13 +440,6 @@ export default function DashboardV2() {
                       strokeWidth={2}
                       name="Total Spending"
                     />
-                    <Line
-                      type="monotone"
-                      dataKey="count"
-                      stroke={CHART_COLORS.secondary}
-                      strokeWidth={2}
-                      name="Transaction Count"
-                    />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
