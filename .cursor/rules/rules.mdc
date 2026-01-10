@@ -1,0 +1,70 @@
+You are an expert developer helping build a **personal finance transaction tracking app**. 
+Your task is to generate SQL migrations, TypeScript types, validation helpers, and queries that are fully consistent with the "transactions_v2" data model.
+
+The **context**:
+
+1. **Goal of transactions_v2**
+   - Serve as the **single source of truth** for all user transactions.
+   - Store both raw and calculated spending amounts.
+   - Prevent any inconsistencies in totals or conventions.
+   - Protect against duplicate uploads.
+
+2. **Schema requirements**
+   - Table name: `transactions_v2`
+   - Columns:
+     - `id` BIGINT, primary key
+     - `user_id` UUID NOT NULL
+     - `source_filename` TEXT NOT NULL
+     - `source_file_hash` TEXT NOT NULL
+     - `uploaded_at` TIMESTAMPTZ NOT NULL  -- time file was uploaded
+     - `transaction_date` DATE NOT NULL
+     - `merchant` TEXT NOT NULL  -- canonical merchant string
+     - `amount_raw` NUMERIC(10,2) NOT NULL  -- original CSV value
+     - `amount_spending` NUMERIC(10,2) NOT NULL  -- pre-calculated positive spending
+     - `amount_convention` TEXT NOT NULL  -- 'positive' | 'negative'
+     - `is_credit` BOOLEAN NOT NULL  -- TRUE if refund or credit
+     - `is_payment` BOOLEAN NOT NULL  -- TRUE if a payment
+     - `category` TEXT (optional)
+     - `notes` TEXT (optional)
+     - `created_at` TIMESTAMPTZ DEFAULT NOW()
+     - `updated_at` TIMESTAMPTZ DEFAULT NOW()
+   - Constraints:
+     - CHECK `amount_spending >= 0`
+     - CHECK `amount_convention IN ('positive', 'negative')`
+     - CHECK `(amount_spending > 0 AND NOT is_credit AND NOT is_payment) OR (amount_spending = 0 AND (is_credit OR is_payment))`
+     - CHECK `merchant IS NOT NULL`
+     - CHECK `transaction_date` reasonable (not > 2099)
+
+3. **TypeScript Requirements**
+   - `TransactionV2Insert`: type for inserting new transactions
+   - `TransactionV2`: full record including ID and timestamps
+   - Helper functions:
+     - `calculateSpendingAmount(rawAmount: number, convention: 'positive' | 'negative'): number`
+     - `generateFileHash(file: File): string`  -- for duplicate detection
+     - `validateTransaction(transaction: TransactionV2Insert): ValidationResult`  -- returns errors if any
+
+4. **Operational Principles**
+   - **Store the answer, don’t recalc**: `amount_spending` must always be pre-calculated at upload
+   - **Explicit over implicit**: flags `is_credit` and `is_payment` are explicit
+   - **Atomic uploads**: all rows from a file must insert together, or rollback entirely
+   - **Single merchant field**: no dual fields; normalized merchant can come later if needed
+   - **Duplicate protection**: `source_file_hash` prevents the same file being uploaded twice
+
+5. **What you should generate**
+   - SQL migration to create `transactions_v2` exactly as above
+   - TypeScript types and helpers consistent with schema
+   - Queries to validate sum of `amount_spending` per user
+   - Example INSERT statement for a CSV row
+   - Any necessary ALTER statements if columns differ
+
+6. **Important constraints for Cursor**
+   - Do NOT invent columns or rename columns unless instructed
+   - Always align TS types with SQL schema
+   - Always enforce constraints in SQL and validation helpers
+   - Assume zero prior data; migration must work on a fresh DB
+   - All examples must pass `SELECT SUM(amount_spending)` test for uploaded CSV totals
+
+**Task:** Based on the above, generate **complete SQL migration + TypeScript types + helper functions** ready for immediate use, and ensure everything aligns precisely with `transactions_v2`.
+---
+alwaysApply: true
+---
