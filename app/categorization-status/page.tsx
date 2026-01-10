@@ -23,21 +23,41 @@ export default function CategorizationStatusPage() {
           throw new Error('Not authenticated');
         }
 
-        // Get all transactions
-        const { data: allTransactions, error: allError } = await supabase
-          .from('transactions_v2')
-          .select('id, category, source_filename, merchant, amount_spending')
-          .eq('user_id', user.id)
-          .gt('amount_spending', 0)
-          .limit(10000);
+        // Fetch all transactions with pagination (Supabase limit is 1000)
+        const pageSize = 1000;
+        let page = 0;
+        let hasMore = true;
+        const allTransactions: any[] = [];
 
-        if (allError) {
-          throw new Error(`Failed to fetch transactions: ${allError.message}`);
+        while (hasMore) {
+          const { data: pageData, error: pageError } = await supabase
+            .from('transactions_v2')
+            .select('id, category, source_filename, merchant, amount_spending')
+            .eq('user_id', user.id)
+            .gt('amount_spending', 0)
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+
+          if (pageError) {
+            throw new Error(`Failed to fetch transactions: ${pageError.message}`);
+          }
+
+          if (!pageData || pageData.length === 0) {
+            hasMore = false;
+          } else {
+            allTransactions.push(...pageData);
+            
+            // If we got less than pageSize, we're done
+            if (pageData.length < pageSize) {
+              hasMore = false;
+            } else {
+              page++;
+            }
+          }
         }
 
         // Get categorized vs uncategorized
-        const categorized = allTransactions?.filter(t => t.category) || [];
-        const uncategorized = allTransactions?.filter(t => !t.category) || [];
+        const categorized = allTransactions.filter(t => t.category);
+        const uncategorized = allTransactions.filter(t => !t.category);
 
         // Group by source file
         const byFile = new Map<string, {
@@ -48,7 +68,7 @@ export default function CategorizationStatusPage() {
           categories: Map<string, number>;
         }>();
 
-        allTransactions?.forEach((t) => {
+        allTransactions.forEach((t) => {
           const filename = t.source_filename || 'Unknown';
           if (!byFile.has(filename)) {
             byFile.set(filename, {
@@ -82,10 +102,10 @@ export default function CategorizationStatusPage() {
 
         setData({
           summary: {
-            total: allTransactions?.length || 0,
+            total: allTransactions.length,
             categorized: categorized.length,
             uncategorized: uncategorized.length,
-            coveragePercent: allTransactions && allTransactions.length > 0
+            coveragePercent: allTransactions.length > 0
               ? (categorized.length / allTransactions.length * 100).toFixed(1)
               : '0',
           },

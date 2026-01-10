@@ -24,21 +24,41 @@ export default function AnalyzeMiscPage() {
           throw new Error('Not authenticated');
         }
 
-        // Get all misc transactions
-        const { data: miscTransactions, error: miscError } = await supabase
-          .from('transactions_v2')
-          .select('id, category, source_filename, merchant, amount_spending, transaction_date, notes')
-          .eq('user_id', user.id)
-          .eq('category', 'misc')
-          .gt('amount_spending', 0)
-          .order('amount_spending', { ascending: false })
-          .limit(10000);
+        // Fetch all misc transactions with pagination (Supabase limit is 1000)
+        const pageSize = 1000;
+        let page = 0;
+        let hasMore = true;
+        const miscTransactions: any[] = [];
 
-        if (miscError) {
-          throw new Error(`Failed to fetch transactions: ${miscError.message}`);
+        while (hasMore) {
+          const { data: pageData, error: pageError } = await supabase
+            .from('transactions_v2')
+            .select('id, category, source_filename, merchant, amount_spending, transaction_date, notes')
+            .eq('user_id', user.id)
+            .eq('category', 'misc')
+            .gt('amount_spending', 0)
+            .order('amount_spending', { ascending: false })
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+
+          if (pageError) {
+            throw new Error(`Failed to fetch transactions: ${pageError.message}`);
+          }
+
+          if (!pageData || pageData.length === 0) {
+            hasMore = false;
+          } else {
+            miscTransactions.push(...pageData);
+            
+            // If we got less than pageSize, we're done
+            if (pageData.length < pageSize) {
+              hasMore = false;
+            } else {
+              page++;
+            }
+          }
         }
 
-        if (!miscTransactions || miscTransactions.length === 0) {
+        if (miscTransactions.length === 0) {
           setData({ transactions: [], merchants: [], summary: null });
           setLoading(false);
           return;
