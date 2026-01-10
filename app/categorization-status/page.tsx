@@ -189,12 +189,29 @@ export default function CategorizationStatusPage() {
           {/* By Category */}
           {data.byCategory.length > 0 && (
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h2 className="text-xl font-semibold mb-4">📁 Transactions by Category</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">📁 Transactions by Category</h2>
+                {data.byCategory.some((cat: any) => cat.name === 'misc' && cat.count > 0) && (
+                  <a
+                    href="/analyze-misc"
+                    className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm font-semibold"
+                  >
+                    🔍 Analyze Misc Category
+                  </a>
+                )}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {data.byCategory.map((cat: any) => (
-                  <div key={cat.name} className="p-3 bg-gray-50 rounded">
+                  <div key={cat.name} className={`p-3 rounded ${
+                    cat.name === 'misc' && cat.count > 0
+                      ? 'bg-yellow-50 border-2 border-yellow-300'
+                      : 'bg-gray-50'
+                  }`}>
                     <p className="text-sm text-gray-600">{cat.name}</p>
                     <p className="text-2xl font-bold">{cat.count.toLocaleString()}</p>
+                    {cat.name === 'misc' && cat.count > 0 && (
+                      <p className="text-xs text-yellow-700 mt-1">Click "Analyze" above</p>
+                    )}
                   </div>
                 ))}
               </div>
