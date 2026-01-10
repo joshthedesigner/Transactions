@@ -498,11 +498,12 @@ export default function DashboardV2() {
         {/* Spending by Category and Top Merchants - Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Spending by Category - Bar Chart */}
-          <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2">
+          <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2 flex flex-col h-full">
             <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
             {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={450}>
-                <BarChart data={categoryData} margin={{ left: 10, right: 10, top: 5, bottom: 60 }}>
+              <div className="flex-1 min-h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={categoryData} margin={{ left: 10, right: 10, top: 5, bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="category"
@@ -518,9 +519,10 @@ export default function DashboardV2() {
                   />
                   <Bar dataKey="total" fill={CHART_COLORS.primary} />
                 </BarChart>
-              </ResponsiveContainer>
+                </ResponsiveContainer>
+              </div>
             ) : (
-              <div className="h-[450px] flex items-center justify-center text-gray-500">
+              <div className="flex-1 min-h-[400px] flex items-center justify-center text-gray-500">
                 No data available
               </div>
             )}
