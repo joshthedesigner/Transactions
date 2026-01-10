@@ -501,8 +501,8 @@ export default function DashboardV2() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
             {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={600}>
-                <BarChart data={categoryData} margin={{ left: 10, right: 10, top: 5, bottom: 100 }}>
+              <ResponsiveContainer width="100%" height={450}>
+                <BarChart data={categoryData} margin={{ left: 10, right: 10, top: 5, bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="category"
@@ -520,7 +520,7 @@ export default function DashboardV2() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[600px] flex items-center justify-center text-gray-500">
+              <div className="h-[450px] flex items-center justify-center text-gray-500">
                 No data available
               </div>
             )}
