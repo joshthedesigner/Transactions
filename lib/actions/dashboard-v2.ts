@@ -46,6 +46,7 @@ export type TransactionRow = {
   amount: number;
   category: string | null;
   notes: string | null;
+  sourceFilename: string | null;
 };
 
 export type DashboardFilters = {
@@ -550,7 +551,7 @@ export async function getPaginatedTransactions(
 
   // Get paginated data
   let query = dataQuery
-    .select('id, transaction_date, merchant, amount_spending, category, notes')
+    .select('id, transaction_date, merchant, amount_spending, category, notes, source_filename')
     .order(dbColumn, { ascending });
 
   // Add secondary sort for consistency when sorting by non-unique columns
@@ -574,6 +575,7 @@ export async function getPaginatedTransactions(
     amount: Number(t.amount_spending || 0),
     category: t.category || null,
     notes: t.notes || null,
+    sourceFilename: t.source_filename || null,
   }));
 
   return {
@@ -739,5 +741,39 @@ export async function getAllCategories(): Promise<Array<{ id: number; name: stri
   }
 
   return data || [];
+}
+
+/**
+ * Find transaction by merchant name and return source file (card)
+ */
+export async function findTransactionSource(merchantSearch: string): Promise<Array<{
+  id: number;
+  merchant: string;
+  amount: number;
+  date: string;
+  sourceFilename: string;
+}>> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  const { data, error } = await supabase
+    .from('transactions_v2')
+    .select('id, merchant, amount_spending, transaction_date, source_filename')
+    .eq('user_id', userId)
+    .ilike('merchant', `%${merchantSearch}%`)
+    .order('transaction_date', { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(`Failed to search transactions: ${error.message}`);
+  }
+
+  return (data || []).map((t: any) => ({
+    id: t.id,
+    merchant: t.merchant,
+    amount: Number(t.amount_spending || 0),
+    date: t.transaction_date,
+    sourceFilename: t.source_filename,
+  }));
 }
 

@@ -74,6 +74,7 @@ export default function DashboardV2() {
   });
   const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [pendingSelectedCategories, setPendingSelectedCategories] = useState<string[]>([]);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const [merchantSearch, setMerchantSearch] = useState<string>('');
@@ -248,23 +249,34 @@ export default function DashboardV2() {
   };
 
   const handleCategoryToggle = (category: string) => {
-    setSelectedCategories(prev => {
+    setPendingSelectedCategories(prev => {
       if (prev.includes(category)) {
         return prev.filter(c => c !== category);
       } else {
         return [...prev, category];
       }
     });
-    setCurrentPage(0);
   };
 
   const handleSelectAllCategories = () => {
-    if (selectedCategories.length === availableCategories.length) {
-      setSelectedCategories([]);
+    if (pendingSelectedCategories.length === availableCategories.length) {
+      setPendingSelectedCategories([]);
     } else {
-      setSelectedCategories([...availableCategories]);
+      setPendingSelectedCategories([...availableCategories]);
     }
+  };
+
+  const handleApplyCategoryFilter = () => {
+    setSelectedCategories(pendingSelectedCategories);
     setCurrentPage(0);
+    setCategoryDropdownOpen(false);
+  };
+
+  const handleResetCategoryFilter = () => {
+    setPendingSelectedCategories([]);
+    setSelectedCategories([]);
+    setCurrentPage(0);
+    setCategoryDropdownOpen(false);
   };
 
   const handleMerchantSearchChange = (search: string) => {
@@ -276,6 +288,7 @@ export default function DashboardV2() {
   const handleClearFilters = () => {
     setDateRange({});
     setSelectedCategories([]);
+    setPendingSelectedCategories([]);
     setMerchantSearch('');
     setCurrentPage(0);
   };
@@ -484,12 +497,6 @@ export default function DashboardV2() {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Transaction Dashboard</h1>
-          <p className="text-gray-600">View your spending patterns and transaction insights</p>
-        </div>
-
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Filters</h2>
@@ -524,7 +531,13 @@ export default function DashboardV2() {
               </label>
               <button
                 type="button"
-                onClick={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
+                onClick={() => {
+                  if (!categoryDropdownOpen) {
+                    // Initialize pending selections with current selections when opening
+                    setPendingSelectedCategories(selectedCategories);
+                  }
+                  setCategoryDropdownOpen(!categoryDropdownOpen);
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-left flex items-center justify-between"
               >
                 <span className="text-gray-700">
@@ -551,12 +564,12 @@ export default function DashboardV2() {
                 </svg>
               </button>
               {categoryDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                  <div className="p-2 border-b border-gray-200">
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
+                  <div className="p-2 border-b border-gray-200 flex-shrink-0">
                     <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
                       <input
                         type="checkbox"
-                        checked={selectedCategories.length === availableCategories.length}
+                        checked={pendingSelectedCategories.length === availableCategories.length && availableCategories.length > 0}
                         onChange={handleSelectAllCategories}
                         className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
@@ -565,7 +578,7 @@ export default function DashboardV2() {
                       </span>
                     </label>
                   </div>
-                  <div className="p-2">
+                  <div className="p-2 overflow-y-auto flex-1 min-h-0">
                     {availableCategories.map((cat) => (
                       <label
                         key={cat}
@@ -573,13 +586,27 @@ export default function DashboardV2() {
                       >
                         <input
                           type="checkbox"
-                          checked={selectedCategories.includes(cat)}
+                          checked={pendingSelectedCategories.includes(cat)}
                           onChange={() => handleCategoryToggle(cat)}
                           className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
                         <span className="text-sm text-gray-700">{cat}</span>
                       </label>
                     ))}
+                  </div>
+                  <div className="p-2 border-t border-gray-200 flex items-center justify-between gap-2 flex-shrink-0">
+                    <button
+                      onClick={handleResetCategoryFilter}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={handleApplyCategoryFilter}
+                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Show results
+                    </button>
                   </div>
                 </div>
               )}
@@ -980,7 +1007,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('category')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '28%' }}
+                        style={{ width: '20%' }}
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Category</span>
@@ -992,6 +1019,12 @@ export default function DashboardV2() {
                             )}
                           </span>
                         </div>
+                      </th>
+                      <th
+                        className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        style={{ width: '20%' }}
+                      >
+                        Source
                       </th>
                     </tr>
                   </thead>
@@ -1043,6 +1076,17 @@ export default function DashboardV2() {
                                   Uncategorized
                                 </span>
                               )
+                            )}
+                          </td>
+                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-600">
+                            {transaction.sourceFilename ? (
+                              <span className="text-xs">
+                                {transaction.sourceFilename.startsWith('Chase') ? 'Chase' :
+                                 transaction.sourceFilename.startsWith('Amex') ? 'Amex' :
+                                 transaction.sourceFilename}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
                             )}
                           </td>
                         </tr>
