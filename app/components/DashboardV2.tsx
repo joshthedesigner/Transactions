@@ -84,6 +84,10 @@ export default function DashboardV2() {
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const pageSize = 50;
+  
+  // Sorting
+  const [sortColumn, setSortColumn] = useState<string>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // ============================================================================
   // LOAD DATA
@@ -146,14 +150,14 @@ export default function DashboardV2() {
         merchant: merchantSearch || undefined,
       };
 
-      const result = await getPaginatedTransactions(currentPage, pageSize, activeFilters);
+      const result = await getPaginatedTransactions(currentPage, pageSize, activeFilters, sortColumn, sortDirection);
       setPaginatedTransactions(result.transactions);
       setTotalTransactions(result.total);
       setHasMore(result.hasMore);
     } catch (e) {
       console.error('Error loading paginated transactions:', e);
     }
-  }, [filters, dateRange, selectedCategories, merchantSearch, currentPage]);
+  }, [filters, dateRange, selectedCategories, merchantSearch, currentPage, sortColumn, sortDirection]);
 
   // Load merchant suggestions for autocomplete
   const loadMerchantSuggestions = useCallback(async (search: string) => {
@@ -661,10 +665,10 @@ export default function DashboardV2() {
           </div>
         </div>
 
-        {/* Recent Transactions Table */}
+        {/* All Transactions Table */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Recent Transactions</h2>
+            <h2 className="text-xl font-semibold">All Transactions</h2>
             <div className="text-sm text-gray-600">
               Showing {paginatedTransactions.length} of {totalTransactions.toLocaleString()}
             </div>
@@ -679,20 +683,70 @@ export default function DashboardV2() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Date
+                      <th
+                        onClick={() => handleSort('date')}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          Date
+                          {sortColumn === 'date' && (
+                            <span className="text-blue-600">
+                              {sortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Merchant
+                      <th
+                        onClick={() => handleSort('merchant')}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          Merchant
+                          {sortColumn === 'merchant' && (
+                            <span className="text-blue-600">
+                              {sortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Amount
+                      <th
+                        onClick={() => handleSort('amount')}
+                        className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Amount
+                          {sortColumn === 'amount' && (
+                            <span className="text-blue-600">
+                              {sortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Category
+                      <th
+                        onClick={() => handleSort('category')}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          Category
+                          {sortColumn === 'category' && (
+                            <span className="text-blue-600">
+                              {sortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Notes
+                      <th
+                        onClick={() => handleSort('notes')}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          Notes
+                          {sortColumn === 'notes' && (
+                            <span className="text-blue-600">
+                              {sortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </div>
                       </th>
                     </tr>
                   </thead>

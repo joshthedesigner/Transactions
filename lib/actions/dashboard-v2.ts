@@ -484,7 +484,9 @@ export async function getRecentTransactions(
 export async function getPaginatedTransactions(
   page: number = 0,
   pageSize: number = 50,
-  filters: DashboardFilters = {}
+  filters: DashboardFilters = {},
+  sortColumn: string = 'transaction_date',
+  sortDirection: 'asc' | 'desc' = 'desc'
 ): Promise<{
   transactions: TransactionRow[];
   total: number;
@@ -505,12 +507,29 @@ export async function getPaginatedTransactions(
 
   const total = count || 0;
 
+  // Map frontend column names to database column names
+  const columnMap: Record<string, string> = {
+    date: 'transaction_date',
+    merchant: 'merchant',
+    amount: 'amount_spending',
+    category: 'category',
+    notes: 'notes',
+  };
+
+  const dbColumn = columnMap[sortColumn] || 'transaction_date';
+  const ascending = sortDirection === 'asc';
+
   // Get paginated data
-  const { data, error } = await baseQuery
+  let query = baseQuery
     .select('id, transaction_date, merchant, amount_spending, category, notes')
-    .order('transaction_date', { ascending: false })
-    .order('id', { ascending: false })
-    .range(page * pageSize, (page + 1) * pageSize - 1);
+    .order(dbColumn, { ascending });
+
+  // Add secondary sort for consistency when sorting by non-unique columns
+  if (dbColumn !== 'id') {
+    query = query.order('id', { ascending: false });
+  }
+
+  const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
 
   if (error) {
     throw new Error(`Failed to fetch transactions: ${error.message}`);
