@@ -532,7 +532,7 @@ export default function DashboardV2() {
           <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2 flex flex-col h-full">
             <h2 className="text-xl font-semibold mb-4">Top Merchants</h2>
             {merchantData.length > 0 ? (
-              <div className="flex-1 space-y-2 overflow-y-auto min-h-0">
+              <div className="space-y-2 overflow-y-auto max-h-[400px]">
                 {merchantData.map((merchant, idx) => (
                   <div
                     key={merchant.merchant}
