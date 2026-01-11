@@ -697,20 +697,22 @@ export default function DashboardV2() {
                     <tr>
                       <th
                         onClick={() => handleSort('date')}
-                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none w-[140px] max-w-[140px]"
                       >
                         <div className="flex items-center gap-1">
-                          Date
-                          {sortColumn === 'date' && (
-                            <span className="text-blue-600">
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
+                          <span className="flex-1">Date</span>
+                          <span className="w-4 text-center flex-shrink-0">
+                            {sortColumn === 'date' && (
+                              <span className="text-blue-600">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </th>
                       <th
                         onClick={() => handleSort('merchant')}
-                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none w-[250px] max-w-[250px]"
                       >
                         <div className="flex items-center gap-1 w-full">
                           <span className="flex-1">Merchant</span>
@@ -725,28 +727,32 @@ export default function DashboardV2() {
                       </th>
                       <th
                         onClick={() => handleSort('amount')}
-                        className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none w-[120px] max-w-[120px]"
                       >
                         <div className="flex items-center justify-end gap-1">
-                          Amount
-                          {sortColumn === 'amount' && (
-                            <span className="text-blue-600">
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
+                          <span className="flex-1 text-right">Amount</span>
+                          <span className="w-4 text-center flex-shrink-0">
+                            {sortColumn === 'amount' && (
+                              <span className="text-blue-600">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </th>
                       <th
                         onClick={() => handleSort('category')}
-                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none w-[150px] max-w-[150px]"
                       >
                         <div className="flex items-center gap-1">
-                          Category
-                          {sortColumn === 'category' && (
-                            <span className="text-blue-600">
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
+                          <span className="flex-1">Category</span>
+                          <span className="w-4 text-center flex-shrink-0">
+                            {sortColumn === 'category' && (
+                              <span className="text-blue-600">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </th>
                       <th
@@ -754,12 +760,14 @@ export default function DashboardV2() {
                         className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                       >
                         <div className="flex items-center gap-1">
-                          Notes
-                          {sortColumn === 'notes' && (
-                            <span className="text-blue-600">
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
+                          <span className="flex-1">Notes</span>
+                          <span className="w-4 text-center flex-shrink-0">
+                            {sortColumn === 'notes' && (
+                              <span className="text-blue-600">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </th>
                     </tr>
@@ -767,14 +775,14 @@ export default function DashboardV2() {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedTransactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 w-[140px] max-w-[140px]">
                           {formatDate(transaction.date)}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{transaction.merchant}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 w-[250px] max-w-[250px] overflow-hidden text-ellipsis">{transaction.merchant}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-right w-[120px] max-w-[120px]">
                           {formatCurrency(transaction.amount)}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-4 py-3 whitespace-nowrap w-[150px] max-w-[150px]">
                           {transaction.category ? (
                             <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
                               {transaction.category}
