@@ -56,7 +56,8 @@ export type DashboardFilters = {
   category?: string; // Single category (deprecated, use categories)
   categories?: string[]; // Multiple categories
   secondaryCategories?: string[]; // Multiple secondary categories
-  merchant?: string;
+  merchant?: string; // Single merchant (deprecated, use merchants)
+  merchants?: string[]; // Multiple merchants (OR logic)
   onlySpending?: boolean; // Default true
 };
 
@@ -160,8 +161,21 @@ function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters
     }
   }
 
-  // Merchant filter (case-insensitive partial match)
-  if (filters.merchant) {
+  // Merchant filter
+  // Support both single merchant (legacy) and multiple merchants (OR logic)
+  if (filters.merchants && filters.merchants.length > 0) {
+    // Multiple merchants: use OR logic with exact match (since these are selected from typeahead)
+    if (filters.merchants.length === 1) {
+      query = query.ilike('merchant', filters.merchants[0]);
+    } else {
+      // For multiple merchants, use OR with exact match
+      const merchantConditions = filters.merchants
+        .map(m => `merchant.ilike.${m}`)
+        .join(',');
+      query = query.or(merchantConditions);
+    }
+  } else if (filters.merchant) {
+    // Legacy single merchant support (partial match for backward compatibility)
     query = query.ilike('merchant', `%${filters.merchant}%`);
   }
 
@@ -573,7 +587,21 @@ export async function getPaginatedTransactions(
       countQueryBuilder = countQueryBuilder.in('secondary_category', otherCategories);
     }
   }
-  if (filters.merchant) {
+  // Merchant filter
+  // Support both single merchant (legacy) and multiple merchants (OR logic)
+  if (filters.merchants && filters.merchants.length > 0) {
+    // Multiple merchants: use OR logic with exact match (since these are selected from typeahead)
+    if (filters.merchants.length === 1) {
+      countQueryBuilder = countQueryBuilder.ilike('merchant', filters.merchants[0]);
+    } else {
+      // For multiple merchants, use OR with exact match
+      const merchantConditions = filters.merchants
+        .map(m => `merchant.ilike.${m}`)
+        .join(',');
+      countQueryBuilder = countQueryBuilder.or(merchantConditions);
+    }
+  } else if (filters.merchant) {
+    // Legacy single merchant support (partial match for backward compatibility)
     countQueryBuilder = countQueryBuilder.ilike('merchant', `%${filters.merchant}%`);
   }
 

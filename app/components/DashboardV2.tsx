@@ -85,7 +85,9 @@ export default function DashboardV2() {
   const [secondaryCategoryDropdownOpen, setSecondaryCategoryDropdownOpen] = useState(false);
   const secondaryCategoryDropdownRef = useRef<HTMLDivElement>(null);
   const [availableSecondaryCategories, setAvailableSecondaryCategories] = useState<string[]>([]);
-  const [merchantSearch, setMerchantSearch] = useState<string>('');
+  const [selectedMerchants, setSelectedMerchants] = useState<string[]>([]);
+  const [merchantInputValue, setMerchantInputValue] = useState<string>('');
+  const merchantDropdownRef = useRef<HTMLDivElement>(null);
   const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
   const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
   const [timeMetricType, setTimeMetricType] = useState<'amount' | 'count'>('amount');
@@ -138,7 +140,7 @@ export default function DashboardV2() {
         endDate: dateRange.end,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
         secondaryCategories: selectedSecondaryCategories.length > 0 ? selectedSecondaryCategories : undefined,
-        merchant: merchantSearch || undefined,
+        merchants: selectedMerchants.length > 0 ? selectedMerchants : undefined,
       };
 
       // Load all data in parallel
@@ -176,7 +178,7 @@ export default function DashboardV2() {
     } finally {
       setLoading(false);
     }
-  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, merchantSearch, timeGranularity, timeViewMode, timeMetricType, categoryType, timeCategoryType]);
+  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, selectedMerchants, timeGranularity, timeViewMode, timeMetricType, categoryType, timeCategoryType]);
 
   const loadPaginatedData = useCallback(async () => {
     try {
@@ -185,7 +187,7 @@ export default function DashboardV2() {
         endDate: dateRange.end,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
         secondaryCategories: selectedSecondaryCategories.length > 0 ? selectedSecondaryCategories : undefined,
-        merchant: merchantSearch || undefined,
+        merchants: selectedMerchants.length > 0 ? selectedMerchants : undefined,
         onlySpending: false, // Show all transactions (including credits/payments) in the table
       };
 
@@ -196,7 +198,7 @@ export default function DashboardV2() {
     } catch (e) {
       console.error('Error loading paginated transactions:', e);
     }
-  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, merchantSearch, currentPage, sortColumn, sortDirection]);
+  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, selectedMerchants, currentPage, sortColumn, sortDirection]);
 
   // Load merchant suggestions for autocomplete
   const loadMerchantSuggestions = useCallback(async (search: string) => {
@@ -256,16 +258,22 @@ export default function DashboardV2() {
       ) {
         setActionDropdownOpen(false);
       }
+      if (
+        merchantDropdownRef.current &&
+        !merchantDropdownRef.current.contains(event.target as Node)
+      ) {
+        setMerchantSuggestions([]);
+      }
     };
 
-    if (categoryDropdownOpen || secondaryCategoryDropdownOpen || actionDropdownOpen) {
+    if (categoryDropdownOpen || secondaryCategoryDropdownOpen || actionDropdownOpen || merchantSuggestions.length > 0) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [categoryDropdownOpen, secondaryCategoryDropdownOpen, actionDropdownOpen]);
+  }, [categoryDropdownOpen, secondaryCategoryDropdownOpen, actionDropdownOpen, merchantSuggestions.length]);
 
   // ============================================================================
   // HANDLERS
@@ -307,17 +315,36 @@ export default function DashboardV2() {
     setCategoryDropdownOpen(false);
   };
 
-  const handleMerchantSearchChange = (search: string) => {
-    setMerchantSearch(search);
+  const handleMerchantInputChange = (value: string) => {
+    setMerchantInputValue(value);
+    loadMerchantSuggestions(value);
+  };
+
+  const handleMerchantSelect = (merchant: string) => {
+    if (!selectedMerchants.includes(merchant)) {
+      setSelectedMerchants(prev => [...prev, merchant]);
+    }
+    setMerchantInputValue('');
+    setMerchantSuggestions([]);
     setCurrentPage(0);
-    loadMerchantSuggestions(search);
+  };
+
+  const handleMerchantRemove = (merchant: string) => {
+    setSelectedMerchants(prev => prev.filter(m => m !== merchant));
+    setCurrentPage(0);
+  };
+
+  const handleClearMerchantInput = () => {
+    setMerchantInputValue('');
+    setMerchantSuggestions([]);
   };
 
   const handleClearFilters = () => {
     setDateRange({});
     setSelectedCategories([]);
     setPendingSelectedCategories([]);
-    setMerchantSearch('');
+    setSelectedMerchants([]);
+    setMerchantInputValue('');
     setCurrentPage(0);
   };
 
@@ -890,28 +917,64 @@ export default function DashboardV2() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Merchant
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={merchantSearch}
-                  onChange={(e) => handleMerchantSearchChange(e.target.value)}
-                  placeholder="Search merchants..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                />
+              <div className="relative" ref={merchantDropdownRef}>
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2 border border-gray-300 rounded-md focus-within:ring-blue-500 focus-within:border-blue-500 bg-white min-h-[42px]">
+                  {/* Merchant Pills */}
+                  {selectedMerchants.map((merchant) => (
+                    <span
+                      key={merchant}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-sm"
+                    >
+                      <span>{merchant}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleMerchantRemove(merchant)}
+                        className="hover:text-blue-600 focus:outline-none"
+                        aria-label={`Remove ${merchant}`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </span>
+                  ))}
+                  {/* Input Field */}
+                  <input
+                    type="text"
+                    value={merchantInputValue}
+                    onChange={(e) => handleMerchantInputChange(e.target.value)}
+                    placeholder={selectedMerchants.length === 0 ? "Search merchants..." : ""}
+                    className="flex-1 min-w-[120px] border-0 outline-none focus:ring-0 p-0 text-sm"
+                  />
+                  {/* Clear Button */}
+                  {merchantInputValue.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearMerchantInput}
+                      className="text-gray-400 hover:text-gray-600 focus:outline-none"
+                      aria-label="Clear search"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {/* Typeahead Dropdown */}
                 {merchantSuggestions.length > 0 && (
                   <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                    {merchantSuggestions.map((merchant) => (
-                      <button
-                        key={merchant}
-                        onClick={() => {
-                          setMerchantSearch(merchant);
-                          setMerchantSuggestions([]);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
-                      >
-                        {merchant}
-                      </button>
-                    ))}
+                    {merchantSuggestions
+                      .filter(merchant => !selectedMerchants.includes(merchant))
+                      .map((merchant) => (
+                        <button
+                          key={merchant}
+                          type="button"
+                          onClick={() => handleMerchantSelect(merchant)}
+                          className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                        >
+                          {merchant}
+                        </button>
+                      ))}
                   </div>
                 )}
               </div>
