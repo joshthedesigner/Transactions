@@ -104,12 +104,18 @@ export default function DashboardV2() {
   // Track if categories have been loaded (don't reload on filter changes)
   const categoriesLoadedRef = useRef(false);
   const secondaryCategoriesLoadedRef = useRef(false);
+  
+  // Track date input values at focus time to prevent browser auto-fill from triggering filters
+  // Store the value when input is focused, only apply filter on blur if value changed
+  const dateInputValueOnFocus = useRef<{start?: string, end?: string}>({});
 
   // Filters
   const [filters, setFilters] = useState<DashboardFilters>({
     onlySpending: true,
   });
-  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
+  // Separate display state (for visual feedback) from filter state (for actual filtering)
+  const [dateRangeDisplay, setDateRangeDisplay] = useState<{ start?: string; end?: string }>({});
+  const [dateRangeFilter, setDateRangeFilter] = useState<{ start?: string; end?: string }>({});
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [pendingSelectedCategories, setPendingSelectedCategories] = useState<string[]>([]);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
@@ -124,7 +130,8 @@ export default function DashboardV2() {
   const merchantDropdownRef = useRef<HTMLDivElement>(null);
   
   // Debounced filter values for data loading (must be after all state declarations)
-  const debouncedDateRange = useDebounce(dateRange, 400);
+  // Only debounce the filter state, not the display state
+  const debouncedDateRange = useDebounce(dateRangeFilter, 400);
   const debouncedSelectedCategories = useDebounce(selectedCategories, 400);
   const debouncedSelectedSecondaryCategories = useDebounce(selectedSecondaryCategories, 400);
   const debouncedSelectedMerchants = useDebounce(selectedMerchants, 400);
@@ -373,11 +380,52 @@ export default function DashboardV2() {
   // HANDLERS
   // ============================================================================
 
+  // Handle date input focus - store current value to compare on blur
+  const handleDateRangeFocus = (field: 'start' | 'end') => {
+    // Store the display value when user focuses the input
+    // This is what we'll compare against on blur
+    dateInputValueOnFocus.current[field] = dateRangeDisplay[field] || '';
+  };
+
+  // Handle date input blur - only apply filter if value actually changed
+  const handleDateRangeBlur = (field: 'start' | 'end', value: string) => {
+    const valueOnFocus = dateInputValueOnFocus.current[field] || '';
+    const newValue = value || '';
+    
+    // Only update filter state if value changed from when user focused the input
+    // This prevents browser auto-fill from triggering filters
+    if (newValue !== valueOnFocus) {
+      const currentFilterValue = dateRangeFilter[field];
+      const finalValue = newValue || undefined;
+      
+      if (finalValue && finalValue !== currentFilterValue) {
+        // User selected a new date - update filter state (triggers data load via debounce)
+        setDateRangeFilter(prev => ({ ...prev, [field]: finalValue }));
+        setCurrentPage(0); // Reset pagination
+        // Clear transactions to show loading state (will be debounced)
+        setPaginatedTransactions([]);
+      } else if (!finalValue && currentFilterValue) {
+        // User cleared the date - update filter state
+        setDateRangeFilter(prev => ({ ...prev, [field]: undefined }));
+        setCurrentPage(0);
+        setPaginatedTransactions([]);
+      }
+    }
+    // If value didn't change, do nothing - prevents auto-fill triggers
+  };
+
+  // Handle date input change - update display value only (for visual feedback)
+  // This does NOT trigger data load - filter state only updates on blur
   const handleDateRangeChange = (field: 'start' | 'end', value: string) => {
-    setDateRange(prev => ({ ...prev, [field]: value || undefined }));
-    setCurrentPage(0); // Reset pagination
-    // Clear transactions to show loading state (will be debounced)
-    setPaginatedTransactions([]);
+    // Update display state immediately for visual feedback
+    // This does NOT trigger debounce or data load
+    const newValue = value || undefined;
+    const currentDisplayValue = dateRangeDisplay[field];
+    
+    // Only update display value if it's different (prevents unnecessary re-renders)
+    if (newValue !== currentDisplayValue) {
+      setDateRangeDisplay(prev => ({ ...prev, [field]: newValue }));
+    }
   };
 
   const handleCategoryToggle = (category: string) => {
@@ -444,7 +492,8 @@ export default function DashboardV2() {
   };
 
   const handleClearFilters = () => {
-    setDateRange({});
+    setDateRangeDisplay({});
+    setDateRangeFilter({});
     setSelectedCategories([]);
     setPendingSelectedCategories([]);
     setSelectedSecondaryCategories([]);
@@ -824,7 +873,9 @@ export default function DashboardV2() {
               </label>
               <input
                 type="date"
-                value={dateRange.start || ''}
+                value={dateRangeDisplay.start || ''}
+                onFocus={() => handleDateRangeFocus('start')}
+                onBlur={(e) => handleDateRangeBlur('start', e.target.value)}
                 onChange={(e) => handleDateRangeChange('start', e.target.value)}
                 disabled={isInitialLoading}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -836,7 +887,9 @@ export default function DashboardV2() {
               </label>
               <input
                 type="date"
-                value={dateRange.end || ''}
+                value={dateRangeDisplay.end || ''}
+                onFocus={() => handleDateRangeFocus('end')}
+                onBlur={(e) => handleDateRangeBlur('end', e.target.value)}
                 onChange={(e) => handleDateRangeChange('end', e.target.value)}
                 disabled={isInitialLoading}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
