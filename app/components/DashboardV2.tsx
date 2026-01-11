@@ -891,18 +891,18 @@ export default function DashboardV2() {
               ) : (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleSave}
-                    disabled={isSaving || editedCategories.size === 0}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                  >
-                    {isSaving ? 'Saving...' : 'Save'}
-                  </button>
-                  <button
                     onClick={handleCancel}
                     disabled={isSaving}
                     className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving || editedCategories.size === 0}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  >
+                    {isSaving ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               )}
