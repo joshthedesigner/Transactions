@@ -960,17 +960,6 @@ export default function DashboardV2() {
               </button>
             </div>
           </div>
-          <div className="mt-4 flex items-center gap-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={filters.onlySpending !== false}
-                onChange={(e) => setFilters(prev => ({ ...prev, onlySpending: e.target.checked }))}
-                className="rounded"
-              />
-              <span className="text-sm text-gray-700">Only spending transactions</span>
-            </label>
-          </div>
         </div>
       </div>
 
