@@ -698,7 +698,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('date')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '12%' }}
+                        style={{ width: '15%' }}
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Date</span>
@@ -714,7 +714,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('merchant')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '25%' }}
+                        style={{ width: '40%' }}
                       >
                         <div className="flex items-center gap-1 w-full">
                           <span className="flex-1">Merchant</span>
@@ -730,7 +730,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('amount')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '12%' }}
+                        style={{ width: '15%' }}
                       >
                         <div className="flex items-center justify-end gap-1">
                           <span className="flex-1 text-right">Amount</span>
@@ -746,28 +746,12 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('category')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '15%' }}
+                        style={{ width: '30%' }}
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Category</span>
                           <span className="w-4 text-center flex-shrink-0">
                             {sortColumn === 'category' && (
-                              <span className="text-blue-600">
-                                {sortDirection === 'asc' ? '↑' : '↓'}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('notes')}
-                        className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '36%' }}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className="flex-1">Notes</span>
-                          <span className="w-4 text-center flex-shrink-0">
-                            {sortColumn === 'notes' && (
                               <span className="text-blue-600">
                                 {sortDirection === 'asc' ? '↑' : '↓'}
                               </span>
@@ -797,9 +781,6 @@ export default function DashboardV2() {
                               Uncategorized
                             </span>
                           )}
-                        </td>
-                        <td className="px-4 md:px-6 lg:px-8 py-3 text-sm text-gray-500">
-                          {transaction.notes || '-'}
                         </td>
                       </tr>
                     ))}
