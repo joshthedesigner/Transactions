@@ -425,8 +425,11 @@ export async function getSpendingByCategoryOverTime(
       }
       // For weekly format (MM/DD/YY), convert to date for proper sorting
       const parseDate = (dateStr: string): Date => {
-        const [month, day, year] = dateStr.split('/');
-        return new Date(2000 + parseInt(year), parseInt(month) - 1, parseInt(day));
+        const [month, day, yearStr] = dateStr.split('/');
+        const year = parseInt(yearStr);
+        // Assume years 00-50 are 2000-2050, years 51-99 are 1951-1999
+        const fullYear = year <= 50 ? 2000 + year : 1900 + year;
+        return new Date(fullYear, parseInt(month) - 1, parseInt(day));
       };
       return parseDate(a.period).getTime() - parseDate(b.period).getTime();
     });
