@@ -712,10 +712,10 @@ export default function DashboardV2() {
                         onClick={() => handleSort('merchant')}
                         className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                       >
-                        <div className="flex items-center gap-1">
-                          Merchant
+                        <div className="flex items-center gap-1 min-w-[120px]">
+                          <span>Merchant</span>
                           {sortColumn === 'merchant' && (
-                            <span className="text-blue-600">
+                            <span className="text-blue-600 flex-shrink-0">
                               {sortDirection === 'asc' ? '↑' : '↓'}
                             </span>
                           )}
@@ -768,7 +768,7 @@ export default function DashboardV2() {
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                           {formatDate(transaction.date)}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-900">{transaction.merchant}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{transaction.merchant}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
                           {formatCurrency(transaction.amount)}
                         </td>
