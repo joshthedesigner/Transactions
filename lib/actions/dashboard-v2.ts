@@ -36,7 +36,7 @@ export type TimeSeriesData = {
 
 export type CategoryTimeSeriesData = {
   period: string;
-  [category: string]: string | number; // Dynamic category keys with amounts
+  [category: string]: string | number; // Dynamic category keys with amounts or counts
 };
 
 export type TransactionRow = {
@@ -337,7 +337,8 @@ export async function getSpendingOverTime(
 
 export async function getSpendingByCategoryOverTime(
   granularity: 'monthly' | 'weekly' = 'monthly',
-  filters: DashboardFilters = {}
+  filters: DashboardFilters = {},
+  metricType: 'amount' | 'count' = 'amount'
 ): Promise<CategoryTimeSeriesData[]> {
   const supabase = await createClient();
   const userId = await getUserId();
@@ -346,7 +347,7 @@ export async function getSpendingByCategoryOverTime(
   const transactions = await paginateQuery<any>(baseQuery);
 
   // Group by period and category
-  const periodMap = new Map<string, Map<string, number>>();
+  const periodMap = new Map<string, Map<string, { amount: number; count: number }>>();
 
   transactions.forEach((t) => {
     const date = new Date(t.transaction_date);
@@ -373,8 +374,11 @@ export async function getSpendingByCategoryOverTime(
     }
 
     const categoryMap = periodMap.get(period)!;
-    const currentAmount = categoryMap.get(category) || 0;
-    categoryMap.set(category, currentAmount + amount);
+    const current = categoryMap.get(category) || { amount: 0, count: 0 };
+    categoryMap.set(category, {
+      amount: current.amount + amount,
+      count: current.count + 1,
+    });
   });
 
   // Get all unique categories across all periods
@@ -390,7 +394,8 @@ export async function getSpendingByCategoryOverTime(
     .map(([period, categoryMap]) => {
       const data: CategoryTimeSeriesData = { period };
       allCategories.forEach((category) => {
-        data[category] = categoryMap.get(category) || 0;
+        const stats = categoryMap.get(category) || { amount: 0, count: 0 };
+        data[category] = metricType === 'amount' ? stats.amount : stats.count;
       });
       return data;
     })

@@ -74,6 +74,7 @@ export default function DashboardV2() {
   const [merchantSearch, setMerchantSearch] = useState<string>('');
   const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
   const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
+  const [timeMetricType, setTimeMetricType] = useState<'amount' | 'count'>('amount');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(0);
@@ -113,7 +114,7 @@ export default function DashboardV2() {
         getSpendingByCategory(activeFilters),
         getTopMerchants(20, activeFilters),
         getSpendingOverTime(timeGranularity, activeFilters),
-        getSpendingByCategoryOverTime(timeGranularity, activeFilters),
+        getSpendingByCategoryOverTime(timeGranularity, activeFilters, timeMetricType),
         getRecentTransactions(50, activeFilters),
         getAvailableCategories(),
       ]);
@@ -131,7 +132,7 @@ export default function DashboardV2() {
     } finally {
       setLoading(false);
     }
-  }, [filters, dateRange, selectedCategory, merchantSearch, timeGranularity]);
+  }, [filters, dateRange, selectedCategory, merchantSearch, timeGranularity, timeMetricType]);
 
   const loadPaginatedData = useCallback(async () => {
     try {
@@ -399,26 +400,22 @@ export default function DashboardV2() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Spending Over Time</h2>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setTimeViewMode('total')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    timeViewMode === 'total'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                <select
+                  value={timeMetricType}
+                  onChange={(e) => setTimeMetricType(e.target.value as 'amount' | 'count')}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  Total
-                </button>
-                <button
-                  onClick={() => setTimeViewMode('byCategory')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    timeViewMode === 'byCategory'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  <option value="amount">$ Amount</option>
+                  <option value="count"># Transactions</option>
+                </select>
+                <select
+                  value={timeViewMode}
+                  onChange={(e) => setTimeViewMode(e.target.value as 'total' | 'byCategory')}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  By Category
-                </button>
+                  <option value="total">Total</option>
+                  <option value="byCategory">By Category</option>
+                </select>
               </div>
             </div>
             {timeViewMode === 'total' ? (
@@ -427,18 +424,28 @@ export default function DashboardV2() {
                   <LineChart data={timeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                    <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
+                    <YAxis 
+                      tickFormatter={(value) => 
+                        timeMetricType === 'amount' 
+                          ? `$${value.toLocaleString()}` 
+                          : value.toLocaleString()
+                      } 
+                    />
                     <Tooltip
-                      formatter={(value: number) => formatCurrency(value)}
+                      formatter={(value: number) => 
+                        timeMetricType === 'amount' 
+                          ? formatCurrency(value)
+                          : `${value.toLocaleString()} transactions`
+                      }
                       labelStyle={{ color: '#374151' }}
                     />
                     <Legend />
                     <Line
                       type="monotone"
-                      dataKey="total"
+                      dataKey={timeMetricType === 'amount' ? 'total' : 'count'}
                       stroke={CHART_COLORS.primary}
                       strokeWidth={2}
-                      name="Total Spending"
+                      name={timeMetricType === 'amount' ? 'Total Spending' : 'Transaction Count'}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -453,7 +460,7 @@ export default function DashboardV2() {
                 const categories = categoryTimeSeriesData.length > 0
                   ? Object.keys(categoryTimeSeriesData[0]).filter(key => key !== 'period')
                   : [];
-                // Limit to top 10 categories by total spending for readability
+                // Limit to top 10 categories by total spending/transactions for readability
                 const topCategories = categories
                   .map(cat => ({
                     name: cat,
@@ -468,9 +475,19 @@ export default function DashboardV2() {
                     <LineChart data={categoryTimeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                      <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
+                      <YAxis 
+                        tickFormatter={(value) => 
+                          timeMetricType === 'amount' 
+                            ? `$${value.toLocaleString()}` 
+                            : value.toLocaleString()
+                        } 
+                      />
                       <Tooltip
-                        formatter={(value: number) => formatCurrency(value)}
+                        formatter={(value: number) => 
+                          timeMetricType === 'amount' 
+                            ? formatCurrency(value)
+                            : `${value.toLocaleString()} transactions`
+                        }
                         labelStyle={{ color: '#374151' }}
                       />
                       <Legend />
