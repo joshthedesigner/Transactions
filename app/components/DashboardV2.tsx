@@ -24,8 +24,11 @@ import {
   getAvailableCategories,
   getAvailableMerchants,
   updateTransactionCategory,
+  updateTransactionSecondaryCategory,
   bulkUpdateTransactionCategories,
+  bulkUpdateTransactionSecondaryCategories,
   getAllCategories,
+  getAvailableSecondaryCategories,
   type DashboardMetrics,
   type CategorySpending,
   type MerchantSpending,
@@ -77,17 +80,24 @@ export default function DashboardV2() {
   const [pendingSelectedCategories, setPendingSelectedCategories] = useState<string[]>([]);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
+  const [selectedSecondaryCategories, setSelectedSecondaryCategories] = useState<string[]>([]);
+  const [pendingSelectedSecondaryCategories, setPendingSelectedSecondaryCategories] = useState<string[]>([]);
+  const [secondaryCategoryDropdownOpen, setSecondaryCategoryDropdownOpen] = useState(false);
+  const secondaryCategoryDropdownRef = useRef<HTMLDivElement>(null);
+  const [availableSecondaryCategories, setAvailableSecondaryCategories] = useState<string[]>([]);
   const [merchantSearch, setMerchantSearch] = useState<string>('');
   const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
   const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
   const [timeMetricType, setTimeMetricType] = useState<'amount' | 'count'>('amount');
+  const [categoryType, setCategoryType] = useState<'primary' | 'secondary'>('primary');
+  const [timeCategoryType, setTimeCategoryType] = useState<'primary' | 'secondary'>('primary');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(0);
   const [paginatedTransactions, setPaginatedTransactions] = useState<TransactionRow[]>([]);
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const pageSize = 50;
+  const pageSize = 25;
   
   // Sorting
   const [sortColumn, setSortColumn] = useState<string>('date');
@@ -97,11 +107,18 @@ export default function DashboardV2() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
   const [editedCategories, setEditedCategories] = useState<Map<number, string | null>>(new Map());
+  const [editedSecondaryCategories, setEditedSecondaryCategories] = useState<Map<number, string | null>>(new Map());
   const [allCategories, setAllCategories] = useState<Array<{ id: number; name: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [bulkEditModalOpen, setBulkEditModalOpen] = useState(false);
   const [bulkEditCategory, setBulkEditCategory] = useState<string>('');
+  const [bulkEditSecondaryCategory, setBulkEditSecondaryCategory] = useState<string | null>(null);
+  const [bulkEditSecondaryCategoryIsNew, setBulkEditSecondaryCategoryIsNew] = useState(false);
+  const [secondaryTagModalOpen, setSecondaryTagModalOpen] = useState(false);
+  const [secondaryTagModalTransactionId, setSecondaryTagModalTransactionId] = useState<number | null>(null);
+  const [secondaryTagModalNewTag, setSecondaryTagModalNewTag] = useState<string>('');
+  const [secondaryTagModalSelectedTag, setSecondaryTagModalSelectedTag] = useState<string>('');
   const [cancelConfirmModalOpen, setCancelConfirmModalOpen] = useState(false);
   const [actionDropdownOpen, setActionDropdownOpen] = useState(false);
   const actionDropdownRef = useRef<HTMLDivElement>(null);
@@ -120,6 +137,7 @@ export default function DashboardV2() {
         startDate: dateRange.start,
         endDate: dateRange.end,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        secondaryCategories: selectedSecondaryCategories.length > 0 ? selectedSecondaryCategories : undefined,
         merchant: merchantSearch || undefined,
       };
 
@@ -132,14 +150,16 @@ export default function DashboardV2() {
         categoryTimeSeriesResult,
         recentResult,
         categoriesResult,
+        secondaryCategoriesResult,
       ] = await Promise.all([
         getDashboardMetrics(activeFilters),
-        getSpendingByCategory(activeFilters),
+        getSpendingByCategory(activeFilters, categoryType),
         getTopMerchants(20, activeFilters),
         getSpendingOverTime(timeGranularity, activeFilters),
-        getSpendingByCategoryOverTime(timeGranularity, activeFilters, timeMetricType),
+        getSpendingByCategoryOverTime(timeGranularity, activeFilters, timeMetricType, timeCategoryType),
         getRecentTransactions(50, activeFilters),
         getAvailableCategories(),
+        getAvailableSecondaryCategories(),
       ]);
 
       setMetrics(metricsResult);
@@ -149,13 +169,14 @@ export default function DashboardV2() {
       setCategoryTimeSeriesData(categoryTimeSeriesResult);
       setRecentTransactions(recentResult);
       setAvailableCategories(categoriesResult);
+      setAvailableSecondaryCategories(secondaryCategoriesResult);
     } catch (e) {
       console.error('Error loading dashboard data:', e);
       setError(e instanceof Error ? e.message : 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
-  }, [filters, dateRange, selectedCategories, merchantSearch, timeGranularity, timeMetricType]);
+  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, merchantSearch, timeGranularity, timeViewMode, timeMetricType, categoryType, timeCategoryType]);
 
   const loadPaginatedData = useCallback(async () => {
     try {
@@ -163,6 +184,7 @@ export default function DashboardV2() {
         startDate: dateRange.start,
         endDate: dateRange.end,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        secondaryCategories: selectedSecondaryCategories.length > 0 ? selectedSecondaryCategories : undefined,
         merchant: merchantSearch || undefined,
         onlySpending: false, // Show all transactions (including credits/payments) in the table
       };
@@ -174,7 +196,7 @@ export default function DashboardV2() {
     } catch (e) {
       console.error('Error loading paginated transactions:', e);
     }
-  }, [filters, dateRange, selectedCategories, merchantSearch, currentPage, sortColumn, sortDirection]);
+  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, merchantSearch, currentPage, sortColumn, sortDirection]);
 
   // Load merchant suggestions for autocomplete
   const loadMerchantSuggestions = useCallback(async (search: string) => {
@@ -223,6 +245,12 @@ export default function DashboardV2() {
         setCategoryDropdownOpen(false);
       }
       if (
+        secondaryCategoryDropdownRef.current &&
+        !secondaryCategoryDropdownRef.current.contains(event.target as Node)
+      ) {
+        setSecondaryCategoryDropdownOpen(false);
+      }
+      if (
         actionDropdownRef.current &&
         !actionDropdownRef.current.contains(event.target as Node)
       ) {
@@ -230,14 +258,14 @@ export default function DashboardV2() {
       }
     };
 
-    if (categoryDropdownOpen || actionDropdownOpen) {
+    if (categoryDropdownOpen || secondaryCategoryDropdownOpen || actionDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [categoryDropdownOpen, actionDropdownOpen]);
+  }, [categoryDropdownOpen, secondaryCategoryDropdownOpen, actionDropdownOpen]);
 
   // ============================================================================
   // HANDLERS
@@ -350,14 +378,50 @@ export default function DashboardV2() {
     setActionDropdownOpen(false);
   };
 
-  const handleEnterBulkEditMode = () => {
+  const handleEnterBulkEditMode = async () => {
     if (selectedTransactionIds.size === 0) {
       setSaveMessage({ type: 'error', text: 'Please select at least one transaction' });
       setTimeout(() => setSaveMessage(null), 3000);
       setActionDropdownOpen(false);
       return;
     }
-    setBulkEditCategory('');
+    
+    // Ensure secondary categories are loaded
+    if (availableSecondaryCategories.length === 0) {
+      try {
+        const secondaryCategories = await getAvailableSecondaryCategories();
+        setAvailableSecondaryCategories(secondaryCategories);
+      } catch (e) {
+        console.error('Error loading secondary categories:', e);
+      }
+    }
+    
+    // Get selected transactions from current page
+    const selectedTransactions = paginatedTransactions.filter(t => 
+      selectedTransactionIds.has(t.id)
+    );
+    
+    // Check for common primary category
+    const primaryCategories = new Set(
+      selectedTransactions.map(t => t.category).filter(Boolean)
+    );
+    const commonPrimaryCategory = primaryCategories.size === 1 
+      ? Array.from(primaryCategories)[0] 
+      : '';
+    
+    // Check for common secondary category
+    const secondaryCategories = new Set(
+      selectedTransactions.map(t => t.secondaryCategory).filter(Boolean)
+    );
+    const commonSecondaryCategory = secondaryCategories.size === 1 
+      ? Array.from(secondaryCategories)[0] 
+      : null;
+    
+    // Pre-populate fields
+    setBulkEditCategory(commonPrimaryCategory);
+    setBulkEditSecondaryCategory(commonSecondaryCategory);
+    setBulkEditSecondaryCategoryIsNew(false);
+    
     setBulkEditModalOpen(true);
     setActionDropdownOpen(false);
   };
@@ -371,7 +435,7 @@ export default function DashboardV2() {
   };
 
   const handleSave = async () => {
-    if (editedCategories.size === 0) {
+    if (editedCategories.size === 0 && editedSecondaryCategories.size === 0) {
       setSaveMessage({ type: 'error', text: 'No changes to save' });
       setTimeout(() => setSaveMessage(null), 3000);
       return;
@@ -381,19 +445,31 @@ export default function DashboardV2() {
     setSaveMessage(null);
 
     try {
-      const updates = Array.from(editedCategories.entries()).map(([id, category]) =>
-        updateTransactionCategory(id, category)
-      );
+      const updates: Promise<void>[] = [];
+      
+      // Update primary categories
+      Array.from(editedCategories.entries()).forEach(([id, category]) => {
+        updates.push(updateTransactionCategory(id, category));
+      });
+      
+      // Update secondary categories
+      Array.from(editedSecondaryCategories.entries()).forEach(([id, secondaryCategory]) => {
+        updates.push(updateTransactionSecondaryCategory(id, secondaryCategory));
+      });
 
       await Promise.all(updates);
 
-      setSaveMessage({ type: 'success', text: `Successfully updated ${editedCategories.size} transaction(s)` });
+      const totalUpdates = editedCategories.size + editedSecondaryCategories.size;
+      setSaveMessage({ type: 'success', text: `Successfully updated ${totalUpdates} transaction(s)` });
       setIsEditMode(false);
       setEditedCategories(new Map());
+      setEditedSecondaryCategories(new Map());
       setSelectedTransactionIds(new Set());
       
-      // Reload data
+      // Reload data and refresh secondary categories list
       await loadPaginatedData();
+      const secondaryCategories = await getAvailableSecondaryCategories();
+      setAvailableSecondaryCategories(secondaryCategories);
       
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
@@ -414,10 +490,88 @@ export default function DashboardV2() {
   const handleConfirmCancel = () => {
     setIsEditMode(false);
     setEditedCategories(new Map());
+    setEditedSecondaryCategories(new Map());
     setCancelConfirmModalOpen(false);
   };
 
-  const handleBulkEditSave = async (category: string) => {
+  // Secondary category modal handlers
+  const handleOpenSecondaryTagModal = (transactionId: number, currentSecondaryCategory: string | null) => {
+    setSecondaryTagModalTransactionId(transactionId);
+    setSecondaryTagModalSelectedTag(currentSecondaryCategory ? currentSecondaryCategory : 'no_category');
+    setSecondaryTagModalNewTag('');
+    setSecondaryTagModalOpen(true);
+  };
+
+  const handleAddSecondaryTag = () => {
+    if (!secondaryTagModalTransactionId) return;
+
+    const tagToSave = secondaryTagModalSelectedTag === 'create_new' 
+      ? secondaryTagModalNewTag.trim()
+      : secondaryTagModalSelectedTag === 'no_category'
+      ? null
+      : secondaryTagModalSelectedTag || null;
+
+    if (secondaryTagModalSelectedTag === 'create_new' && !secondaryTagModalNewTag.trim()) {
+      return; // Don't allow adding empty tag
+    }
+
+    // If creating a new category, add it to availableSecondaryCategories immediately
+    if (secondaryTagModalSelectedTag === 'create_new' && tagToSave) {
+      setAvailableSecondaryCategories(prev => {
+        if (!prev.includes(tagToSave)) {
+          return [...prev, tagToSave].sort();
+        }
+        return prev;
+      });
+    }
+
+    // Update local state (will be saved when table Save button is clicked)
+    setEditedSecondaryCategories(prev => {
+      const newMap = new Map(prev);
+      newMap.set(secondaryTagModalTransactionId, tagToSave);
+      return newMap;
+    });
+    
+    setSecondaryTagModalOpen(false);
+    setSecondaryTagModalTransactionId(null);
+    setSecondaryTagModalSelectedTag('');
+    setSecondaryTagModalNewTag('');
+  };
+
+  // Secondary category filter handlers
+  const handleSecondaryCategoryToggle = (category: string) => {
+    setPendingSelectedSecondaryCategories(prev => {
+      if (prev.includes(category)) {
+        return prev.filter(c => c !== category);
+      } else {
+        return [...prev, category];
+      }
+    });
+  };
+
+  const handleSelectAllSecondaryCategories = () => {
+    const allOptions = ['__OTHER__', ...availableSecondaryCategories];
+    if (pendingSelectedSecondaryCategories.length === allOptions.length) {
+      setPendingSelectedSecondaryCategories([]);
+    } else {
+      setPendingSelectedSecondaryCategories([...allOptions]);
+    }
+  };
+
+  const handleApplySecondaryCategoryFilter = () => {
+    setSelectedSecondaryCategories(pendingSelectedSecondaryCategories);
+    setCurrentPage(0);
+    setSecondaryCategoryDropdownOpen(false);
+  };
+
+  const handleResetSecondaryCategoryFilter = () => {
+    setPendingSelectedSecondaryCategories([]);
+    setSelectedSecondaryCategories([]);
+    setCurrentPage(0);
+    setSecondaryCategoryDropdownOpen(false);
+  };
+
+  const handleBulkEditSave = async (category: string, secondaryCategory: string | null = null) => {
     if (selectedTransactionIds.size === 0) {
       return;
     }
@@ -427,24 +581,47 @@ export default function DashboardV2() {
     setBulkEditModalOpen(false);
 
     try {
-      const result = await bulkUpdateTransactionCategories(
+      const updates: Promise<{ success: boolean; updated: number; error?: string }>[] = [];
+      
+      // Update primary category
+      if (category) {
+        updates.push(bulkUpdateTransactionCategories(
+          Array.from(selectedTransactionIds),
+          category
+        ));
+      }
+      
+      // Update secondary category
+      updates.push(bulkUpdateTransactionSecondaryCategories(
         Array.from(selectedTransactionIds),
-        category
-      );
+        secondaryCategory
+      ));
 
-      if (result.success) {
+      const results = await Promise.all(updates);
+      const allSuccess = results.every(r => r.success);
+      const totalUpdated = results.reduce((sum, r) => sum + r.updated, 0);
+
+      if (allSuccess) {
         setSaveMessage({ 
           type: 'success', 
-          text: `Successfully updated ${result.updated} transaction(s)` 
+          text: `Successfully updated ${totalUpdated} transaction(s)` 
         });
         setSelectedTransactionIds(new Set());
         
-        // Reload data
+        // Reload data and refresh secondary categories list
         await loadPaginatedData();
+        const secondaryCategories = await getAvailableSecondaryCategories();
+        setAvailableSecondaryCategories(secondaryCategories);
+        
+        // Reset bulk edit state
+        setBulkEditCategory('');
+        setBulkEditSecondaryCategory(null);
+        setBulkEditSecondaryCategoryIsNew(false);
         
         setTimeout(() => setSaveMessage(null), 3000);
       } else {
-        setSaveMessage({ type: 'error', text: result.error || 'Failed to update transactions' });
+        const error = results.find(r => !r.success)?.error || 'Failed to update transactions';
+        setSaveMessage({ type: 'error', text: error });
         setTimeout(() => setSaveMessage(null), 5000);
       }
     } catch (error) {
@@ -500,7 +677,7 @@ export default function DashboardV2() {
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Filters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             {/* Date Range */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -605,7 +782,105 @@ export default function DashboardV2() {
                       onClick={handleApplyCategoryFilter}
                       className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
                     >
-                      Show results
+                      Filter
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Secondary Category Filter - Multi-select */}
+            <div className="relative" ref={secondaryCategoryDropdownRef}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Secondary Categories
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!secondaryCategoryDropdownOpen) {
+                    // Initialize pending selections with current selections when opening
+                    setPendingSelectedSecondaryCategories(selectedSecondaryCategories);
+                  }
+                  setSecondaryCategoryDropdownOpen(!secondaryCategoryDropdownOpen);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 bg-white text-left flex items-center justify-between"
+              >
+                <span className="text-gray-700">
+                  {selectedSecondaryCategories.length === 0
+                    ? 'All Categories'
+                    : selectedSecondaryCategories.length === 1
+                    ? selectedSecondaryCategories[0] === '__OTHER__' ? 'Other' : selectedSecondaryCategories[0]
+                    : `${selectedSecondaryCategories.length} selected`}
+                </span>
+                <svg
+                  className={`w-5 h-5 text-gray-400 transition-transform ${
+                    secondaryCategoryDropdownOpen ? 'transform rotate-180' : ''
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {secondaryCategoryDropdownOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
+                  <div className="p-2 border-b border-gray-200 flex-shrink-0">
+                    <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
+                      <input
+                        type="checkbox"
+                        checked={pendingSelectedSecondaryCategories.length === (1 + availableSecondaryCategories.length) && (availableSecondaryCategories.length > 0 || pendingSelectedSecondaryCategories.includes('__OTHER__'))}
+                        onChange={handleSelectAllSecondaryCategories}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Select All
+                      </span>
+                    </label>
+                  </div>
+                  <div className="p-2 overflow-y-auto flex-1 min-h-0">
+                    <label
+                      className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={pendingSelectedSecondaryCategories.includes('__OTHER__')}
+                        onChange={() => handleSecondaryCategoryToggle('__OTHER__')}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm text-gray-700">Other</span>
+                    </label>
+                    {availableSecondaryCategories.map((tag) => (
+                      <label
+                        key={tag}
+                        className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={pendingSelectedSecondaryCategories.includes(tag)}
+                          onChange={() => handleSecondaryCategoryToggle(tag)}
+                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <span className="text-sm text-gray-700">{tag}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="p-2 border-t border-gray-200 flex items-center justify-between gap-2 flex-shrink-0">
+                    <button
+                      onClick={handleResetSecondaryCategoryFilter}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={handleApplySecondaryCategoryFilter}
+                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Filter
                     </button>
                   </div>
                 </div>
@@ -718,9 +993,17 @@ export default function DashboardV2() {
                   <option value="total">Total</option>
                   <option value="byCategory">By Category</option>
                 </select>
+                <select
+                  value={timeCategoryType}
+                  onChange={(e) => setTimeCategoryType(e.target.value as 'primary' | 'secondary')}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="primary">Primary Categories</option>
+                  <option value="secondary">Secondary Categories</option>
+                </select>
               </div>
             </div>
-            {timeViewMode === 'total' ? (
+            {(timeViewMode === 'total' && timeCategoryType === 'primary') ? (
               timeSeriesData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={timeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
@@ -756,7 +1039,7 @@ export default function DashboardV2() {
                   No data available
                 </div>
               )
-            ) : categoryTimeSeriesData.length > 0 ? (
+            ) : (timeViewMode === 'byCategory' || timeCategoryType === 'secondary') && categoryTimeSeriesData.length > 0 ? (
               (() => {
                 // Get all unique categories from the time series data (excluding 'period')
                 const categories = categoryTimeSeriesData.length > 0
@@ -818,7 +1101,17 @@ export default function DashboardV2() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Spending by Category - Bar Chart */}
           <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2 flex flex-col h-full">
-            <h2 className="text-xl font-semibold mb-4">Spending by Category</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Spending by Category</h2>
+              <select
+                value={categoryType}
+                onChange={(e) => setCategoryType(e.target.value as 'primary' | 'secondary')}
+                className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="primary">Primary Categories</option>
+                <option value="secondary">Secondary Categories</option>
+              </select>
+            </div>
             {categoryData.length > 0 ? (
               <div className="flex-1 min-h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -926,7 +1219,7 @@ export default function DashboardV2() {
                   </button>
                   <button
                     onClick={handleSave}
-                    disabled={isSaving || editedCategories.size === 0}
+                    disabled={isSaving || (editedCategories.size === 0 && editedSecondaryCategories.size === 0)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     {isSaving ? 'Saving...' : 'Save'}
@@ -942,7 +1235,7 @@ export default function DashboardV2() {
           ) : paginatedTransactions.length > 0 ? (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full divide-y divide-gray-200 table-fixed">
+                <table className="min-w-full divide-y divide-gray-200 table-auto">
                   <thead className="bg-gray-50">
                     <tr>
                       <th
@@ -1007,7 +1300,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('category')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '20%' }}
+                        style={{ minWidth: '200px' }}
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Category</span>
@@ -1022,7 +1315,7 @@ export default function DashboardV2() {
                       </th>
                       <th
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        style={{ width: '20%' }}
+                        style={{ minWidth: '120px' }}
                       >
                         Source
                       </th>
@@ -1034,6 +1327,19 @@ export default function DashboardV2() {
                       const displayCategory = editedCategory !== undefined 
                         ? editedCategory 
                         : transaction.category;
+                      
+                      const editedSecondaryCategory = editedSecondaryCategories.get(transaction.id);
+                      const displaySecondaryCategory = editedSecondaryCategory !== undefined
+                        ? editedSecondaryCategory
+                        : transaction.secondaryCategory;
+                      
+                      // Collect all secondary categories including newly created ones from editedSecondaryCategories
+                      // Make sure to include the current transaction's secondary category if it exists
+                      const allSecondaryCategories = new Set([
+                        ...availableSecondaryCategories,
+                        ...Array.from(editedSecondaryCategories.values()).filter(Boolean),
+                        ...(displaySecondaryCategory ? [displaySecondaryCategory] : [])
+                      ]);
                       
                       return (
                         <tr key={transaction.id} className="hover:bg-gray-50">
@@ -1052,31 +1358,73 @@ export default function DashboardV2() {
                           <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
                             {formatCurrency(transaction.amount)}
                           </td>
-                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap">
-                            {isEditMode ? (
-                              <select
-                                value={displayCategory || ''}
-                                onChange={(e) => handleCategoryChange(transaction.id, e.target.value || null)}
-                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              >
-                                <option value="">Uncategorized</option>
-                                {allCategories.map((cat) => (
-                                  <option key={cat.id} value={cat.name}>
-                                    {cat.name}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              displayCategory ? (
-                                <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                                  {displayCategory}
-                                </span>
+                          <td className="px-4 md:px-6 lg:px-8 py-3 align-middle whitespace-nowrap" style={{ minWidth: '200px' }}>
+                            <div className="flex items-center gap-1.5">
+                              {isEditMode ? (
+                                <>
+                                  <select
+                                    value={displayCategory || ''}
+                                    onChange={(e) => handleCategoryChange(transaction.id, e.target.value || null)}
+                                    className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    style={{ width: '140px' }}
+                                  >
+                                    <option value="">Uncategorized</option>
+                                    {allCategories.map((cat) => (
+                                      <option key={cat.id} value={cat.name}>
+                                        {cat.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {(displaySecondaryCategory || editedSecondaryCategory !== undefined) ? (
+                                    <select
+                                      value={displaySecondaryCategory ?? ''}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        setEditedSecondaryCategories(prev => {
+                                          const newMap = new Map(prev);
+                                          newMap.set(transaction.id, value === '' ? null : value);
+                                          return newMap;
+                                        });
+                                      }}
+                                      className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                                      style={{ width: '140px' }}
+                                    >
+                                      <option value="">No secondary category</option>
+                                      {Array.from(allSecondaryCategories).sort().map((tag) => (
+                                        <option key={tag} value={tag}>
+                                          {tag}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleOpenSecondaryTagModal(transaction.id, null)}
+                                      className="inline-flex items-center justify-center px-1.5 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded border border-gray-300"
+                                      title="Add secondary category"
+                                    >
+                                      +
+                                    </button>
+                                  )}
+                                </>
                               ) : (
-                                <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
-                                  Uncategorized
-                                </span>
-                              )
-                            )}
+                                <>
+                                  {displayCategory ? (
+                                    <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+                                      {displayCategory}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
+                                      Uncategorized
+                                    </span>
+                                  )}
+                                  {displaySecondaryCategory && (
+                                    <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
+                                      {displaySecondaryCategory}
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-600">
                             {transaction.sourceFilename ? (
@@ -1149,11 +1497,52 @@ export default function DashboardV2() {
                 ))}
               </select>
             </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Secondary Category
+              </label>
+              <select
+                value={bulkEditSecondaryCategoryIsNew ? 'create_new' : (bulkEditSecondaryCategory || 'no_category')}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'create_new') {
+                    setBulkEditSecondaryCategoryIsNew(true);
+                    setBulkEditSecondaryCategory('');
+                  } else if (value === 'no_category') {
+                    setBulkEditSecondaryCategoryIsNew(false);
+                    setBulkEditSecondaryCategory(null);
+                  } else {
+                    setBulkEditSecondaryCategoryIsNew(false);
+                    setBulkEditSecondaryCategory(value);
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="no_category">No secondary category</option>
+                {availableSecondaryCategories.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+                <option value="create_new">Create new...</option>
+              </select>
+              {bulkEditSecondaryCategoryIsNew && (
+                <input
+                  type="text"
+                  value={bulkEditSecondaryCategory || ''}
+                  onChange={(e) => setBulkEditSecondaryCategory(e.target.value || null)}
+                  placeholder="Enter new tag name"
+                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              )}
+            </div>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => {
                   setBulkEditModalOpen(false);
                   setBulkEditCategory('');
+                  setBulkEditSecondaryCategory(null);
+                  setBulkEditSecondaryCategoryIsNew(false);
                 }}
                 className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
               >
@@ -1162,13 +1551,77 @@ export default function DashboardV2() {
               <button
                 onClick={() => {
                   if (bulkEditCategory) {
-                    handleBulkEditSave(bulkEditCategory);
+                    const secondaryCat = bulkEditSecondaryCategoryIsNew 
+                      ? (bulkEditSecondaryCategory || null)
+                      : bulkEditSecondaryCategory;
+                    handleBulkEditSave(bulkEditCategory, secondaryCat);
                   }
                 }}
-                disabled={isSaving || !bulkEditCategory}
+                disabled={isSaving || !bulkEditCategory || (bulkEditSecondaryCategoryIsNew && !bulkEditSecondaryCategory)}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Secondary Category Modal */}
+      {secondaryTagModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Add Secondary Category</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Secondary Category
+              </label>
+              <select
+                value={secondaryTagModalSelectedTag}
+                onChange={(e) => {
+                  setSecondaryTagModalSelectedTag(e.target.value);
+                  if (e.target.value !== 'create_new') {
+                    setSecondaryTagModalNewTag('');
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="no_category">No secondary category</option>
+                {availableSecondaryCategories.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+                <option value="create_new">Create new...</option>
+              </select>
+              {secondaryTagModalSelectedTag === 'create_new' && (
+                <input
+                  type="text"
+                  value={secondaryTagModalNewTag}
+                  onChange={(e) => setSecondaryTagModalNewTag(e.target.value)}
+                  placeholder="Enter new tag name"
+                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setSecondaryTagModalOpen(false);
+                  setSecondaryTagModalTransactionId(null);
+                  setSecondaryTagModalSelectedTag('');
+                  setSecondaryTagModalNewTag('');
+                }}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddSecondaryTag}
+                disabled={secondaryTagModalSelectedTag === 'create_new' && !secondaryTagModalNewTag.trim()}
+                className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add
               </button>
             </div>
           </div>

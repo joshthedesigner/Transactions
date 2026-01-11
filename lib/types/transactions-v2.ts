@@ -27,6 +27,7 @@ export interface TransactionV2Insert {
   
   // Optional
   category?: string | null;
+  secondary_category?: string | null;
   notes?: string | null;
 }
 

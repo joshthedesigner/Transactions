@@ -45,6 +45,7 @@ export type TransactionRow = {
   merchant: string;
   amount: number;
   category: string | null;
+  secondaryCategory: string | null;
   notes: string | null;
   sourceFilename: string | null;
 };
@@ -54,6 +55,7 @@ export type DashboardFilters = {
   endDate?: string;
   category?: string; // Single category (deprecated, use categories)
   categories?: string[]; // Multiple categories
+  secondaryCategories?: string[]; // Multiple secondary categories
   merchant?: string;
   onlySpending?: boolean; // Default true
 };
@@ -137,6 +139,27 @@ function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters
     query = query.eq('category', filters.category);
   }
 
+  // Secondary category filter (support multiple secondary categories)
+  // If both primary and secondary are selected, show transactions with BOTH
+  // If only secondary is selected, show all transactions with that secondary (regardless of primary)
+  // "__OTHER__" is a special value that means NULL secondary_category
+  if (filters.secondaryCategories && filters.secondaryCategories.length > 0) {
+    const hasOther = filters.secondaryCategories.includes('__OTHER__');
+    const otherCategories = filters.secondaryCategories.filter(c => c !== '__OTHER__');
+    
+    if (hasOther && otherCategories.length > 0) {
+      // If both "Other" and specific categories are selected, use OR logic
+      // Supabase OR syntax: field.is.null,field.in.(val1,val2)
+      query = query.or(`secondary_category.is.null,secondary_category.in.(${otherCategories.map(c => `"${c}"`).join(',')})`);
+    } else if (hasOther) {
+      // Only "Other" selected - filter for NULL
+      query = query.is('secondary_category', null);
+    } else {
+      // Only specific categories selected
+      query = query.in('secondary_category', otherCategories);
+    }
+  }
+
   // Merchant filter (case-insensitive partial match)
   if (filters.merchant) {
     query = query.ilike('merchant', `%${filters.merchant}%`);
@@ -194,7 +217,8 @@ export async function getDashboardMetrics(
 // ============================================================================
 
 export async function getSpendingByCategory(
-  filters: DashboardFilters = {}
+  filters: DashboardFilters = {},
+  categoryType: 'primary' | 'secondary' = 'primary'
 ): Promise<CategorySpending[]> {
   const supabase = await createClient();
   const userId = await getUserId();
@@ -206,7 +230,12 @@ export async function getSpendingByCategory(
   const categoryMap = new Map<string, { total: number; count: number }>();
 
   transactions.forEach((t) => {
-    const category = t.category || 'Uncategorized';
+    let category: string;
+    if (categoryType === 'secondary') {
+      category = t.secondary_category || 'Other';
+    } else {
+      category = t.category || 'Uncategorized';
+    }
     const amount = Number(t.amount_spending || 0);
 
     if (!categoryMap.has(category)) {
@@ -361,7 +390,8 @@ export async function getSpendingOverTime(
 export async function getSpendingByCategoryOverTime(
   granularity: 'monthly' | 'weekly' = 'monthly',
   filters: DashboardFilters = {},
-  metricType: 'amount' | 'count' = 'amount'
+  metricType: 'amount' | 'count' = 'amount',
+  categoryType: 'primary' | 'secondary' = 'primary'
 ): Promise<CategoryTimeSeriesData[]> {
   const supabase = await createClient();
   const userId = await getUserId();
@@ -393,7 +423,12 @@ export async function getSpendingByCategoryOverTime(
       period = `${month}/${day}/${year}`;
     }
 
-    const category = t.category || 'Uncategorized';
+    let category: string;
+    if (categoryType === 'secondary') {
+      category = t.secondary_category || 'Other';
+    } else {
+      category = t.category || 'Uncategorized';
+    }
     const amount = Number(t.amount_spending || 0);
 
     if (!periodMap.has(period)) {
@@ -522,6 +557,22 @@ export async function getPaginatedTransactions(
   } else if (filters.category) {
     countQueryBuilder = countQueryBuilder.eq('category', filters.category);
   }
+  if (filters.secondaryCategories && filters.secondaryCategories.length > 0) {
+    const hasOther = filters.secondaryCategories.includes('__OTHER__');
+    const otherCategories = filters.secondaryCategories.filter(c => c !== '__OTHER__');
+    
+    if (hasOther && otherCategories.length > 0) {
+      // If both "Other" and specific categories are selected, use OR logic
+      // Supabase OR syntax: field.is.null,field.in.(val1,val2)
+      countQueryBuilder = countQueryBuilder.or(`secondary_category.is.null,secondary_category.in.(${otherCategories.map(c => `"${c}"`).join(',')})`);
+    } else if (hasOther) {
+      // Only "Other" selected - filter for NULL
+      countQueryBuilder = countQueryBuilder.is('secondary_category', null);
+    } else {
+      // Only specific categories selected
+      countQueryBuilder = countQueryBuilder.in('secondary_category', otherCategories);
+    }
+  }
   if (filters.merchant) {
     countQueryBuilder = countQueryBuilder.ilike('merchant', `%${filters.merchant}%`);
   }
@@ -551,7 +602,7 @@ export async function getPaginatedTransactions(
 
   // Get paginated data
   let query = dataQuery
-    .select('id, transaction_date, merchant, amount_spending, category, notes, source_filename')
+    .select('id, transaction_date, merchant, amount_spending, category, secondary_category, notes, source_filename')
     .order(dbColumn, { ascending });
 
   // Add secondary sort for consistency when sorting by non-unique columns
@@ -574,6 +625,7 @@ export async function getPaginatedTransactions(
     merchant: t.merchant || 'Unknown',
     amount: Number(t.amount_spending || 0),
     category: t.category || null,
+    secondaryCategory: t.secondary_category || null,
     notes: t.notes || null,
     sourceFilename: t.source_filename || null,
   }));
@@ -726,6 +778,84 @@ export async function bulkUpdateTransactionCategories(
 }
 
 /**
+ * Update secondary category for a single transaction
+ */
+export async function updateTransactionSecondaryCategory(
+  transactionId: number,
+  secondaryCategory: string | null
+): Promise<void> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  // Verify ownership
+  const { data: transaction, error: checkError } = await supabase
+    .from('transactions_v2')
+    .select('id')
+    .eq('id', transactionId)
+    .eq('user_id', userId)
+    .single();
+
+  if (checkError || !transaction) {
+    throw new Error('Transaction not found or access denied');
+  }
+
+  // Update secondary category
+  const { error: updateError } = await supabase
+    .from('transactions_v2')
+    .update({ secondary_category: secondaryCategory })
+    .eq('id', transactionId)
+    .eq('user_id', userId);
+
+  if (updateError) {
+    throw new Error(`Failed to update transaction: ${updateError.message}`);
+  }
+}
+
+/**
+ * Bulk update secondary categories for multiple transactions
+ */
+export async function bulkUpdateTransactionSecondaryCategories(
+  transactionIds: number[],
+  secondaryCategory: string | null
+): Promise<{ success: boolean; updated: number; error?: string }> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  if (transactionIds.length === 0) {
+    return { success: false, updated: 0, error: 'No transactions selected' };
+  }
+
+  // Verify ownership of all transactions
+  const { data: transactions, error: checkError } = await supabase
+    .from('transactions_v2')
+    .select('id')
+    .eq('user_id', userId)
+    .in('id', transactionIds);
+
+  if (checkError) {
+    return { success: false, updated: 0, error: checkError.message };
+  }
+
+  if (!transactions || transactions.length !== transactionIds.length) {
+    return { success: false, updated: 0, error: 'Some transactions not found or access denied' };
+  }
+
+  // Update all transactions
+  const { data: updated, error: updateError } = await supabase
+    .from('transactions_v2')
+    .update({ secondary_category: secondaryCategory })
+    .eq('user_id', userId)
+    .in('id', transactionIds)
+    .select();
+
+  if (updateError) {
+    return { success: false, updated: 0, error: updateError.message };
+  }
+
+  return { success: true, updated: updated?.length || 0 };
+}
+
+/**
  * Get all categories from the categories table
  */
 export async function getAllCategories(): Promise<Array<{ id: number; name: string }>> {
@@ -741,6 +871,31 @@ export async function getAllCategories(): Promise<Array<{ id: number; name: stri
   }
 
   return data || [];
+}
+
+/**
+ * Get all unique secondary categories for the current user
+ */
+export async function getAvailableSecondaryCategories(): Promise<string[]> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  const { data, error } = await supabase
+    .from('transactions_v2')
+    .select('secondary_category')
+    .eq('user_id', userId)
+    .not('secondary_category', 'is', null)
+    .limit(10000);
+
+  if (error) {
+    throw new Error(`Failed to fetch secondary categories: ${error.message}`);
+  }
+
+  const uniqueCategories = Array.from(
+    new Set((data || []).map((t: any) => t.secondary_category).filter(Boolean))
+  ).sort();
+
+  return uniqueCategories;
 }
 
 /**
