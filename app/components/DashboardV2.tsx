@@ -245,6 +245,18 @@ export default function DashboardV2() {
     setCurrentPage(0);
   };
 
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to descending
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+    setCurrentPage(0); // Reset to first page when sorting changes
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
