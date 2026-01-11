@@ -109,14 +109,11 @@ async function paginateQuery<T>(
 // HELPER: Build base query with filters
 // ============================================================================
 
-function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters = {}, includeSelect: boolean = true) {
+function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters = {}) {
   let query = supabase
     .from('transactions_v2')
+    .select('*')
     .eq('user_id', userId);
-  
-  if (includeSelect) {
-    query = query.select('*');
-  }
 
   // Only spending transactions by default
   if (filters.onlySpending !== false) {
@@ -499,12 +496,35 @@ export async function getPaginatedTransactions(
   const userId = await getUserId();
 
   // Build separate queries for count and data (Supabase query builders are mutable)
-  // For count query, don't include .select() so we can add it with count option
-  const countQuery = buildBaseQuery(supabase, userId, filters, false);
-  const dataQuery = buildBaseQuery(supabase, userId, filters, true);
+  const countQuery = buildBaseQuery(supabase, userId, filters);
+  const dataQuery = buildBaseQuery(supabase, userId, filters);
+
+  // Get total count - need to rebuild the count query without the select
+  const countQueryBuilder = supabase
+    .from('transactions_v2')
+    .eq('user_id', userId);
+  
+  // Apply filters to count query
+  if (filters.onlySpending !== false) {
+    countQueryBuilder.gt('amount_spending', 0);
+  }
+  if (filters.startDate) {
+    countQueryBuilder.gte('transaction_date', filters.startDate);
+  }
+  if (filters.endDate) {
+    countQueryBuilder.lte('transaction_date', filters.endDate);
+  }
+  if (filters.categories && filters.categories.length > 0) {
+    countQueryBuilder.in('category', filters.categories);
+  } else if (filters.category) {
+    countQueryBuilder.eq('category', filters.category);
+  }
+  if (filters.merchant) {
+    countQueryBuilder.ilike('merchant', `%${filters.merchant}%`);
+  }
 
   // Get total count
-  const { count, error: countError } = await countQuery
+  const { count, error: countError } = await countQueryBuilder
     .select('*', { count: 'exact', head: true });
 
   if (countError) {
