@@ -98,7 +98,7 @@ export default function DashboardV2() {
         ...filters,
         startDate: dateRange.start,
         endDate: dateRange.end,
-        category: selectedCategory || undefined,
+        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
         merchant: merchantSearch || undefined,
       };
 
