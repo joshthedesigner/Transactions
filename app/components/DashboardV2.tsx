@@ -672,14 +672,13 @@ export default function DashboardV2() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Filters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky Filters Sub-Nav */}
+      <div className="sticky top-16 z-30 w-full bg-white border-b border-gray-200 shadow-sm">
+        <div className="w-full px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex flex-wrap items-end gap-4">
             {/* Date Range */}
-            <div>
+            <div className="w-auto">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Start Date
               </label>
@@ -687,10 +686,10 @@ export default function DashboardV2() {
                 type="date"
                 value={dateRange.start || ''}
                 onChange={(e) => handleDateRangeChange('start', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div>
+            <div className="w-auto">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 End Date
               </label>
@@ -698,11 +697,11 @@ export default function DashboardV2() {
                 type="date"
                 value={dateRange.end || ''}
                 onChange={(e) => handleDateRangeChange('end', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             {/* Category Filter - Multi-select */}
-            <div className="relative" ref={categoryDropdownRef}>
+            <div className="relative w-[200px]" ref={categoryDropdownRef}>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Categories
               </label>
@@ -741,7 +740,7 @@ export default function DashboardV2() {
                 </svg>
               </button>
               {categoryDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
+                <div className="absolute z-40 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
                   <div className="p-2 border-b border-gray-200 flex-shrink-0">
                     <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
                       <input
@@ -789,7 +788,7 @@ export default function DashboardV2() {
               )}
             </div>
             {/* Secondary Category Filter - Multi-select */}
-            <div className="relative" ref={secondaryCategoryDropdownRef}>
+            <div className="relative w-[200px]" ref={secondaryCategoryDropdownRef}>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Secondary Categories
               </label>
@@ -828,7 +827,7 @@ export default function DashboardV2() {
                 </svg>
               </button>
               {secondaryCategoryDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
+                <div className="absolute z-40 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
                   <div className="p-2 border-b border-gray-200 flex-shrink-0">
                     <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
                       <input
@@ -887,7 +886,7 @@ export default function DashboardV2() {
               )}
             </div>
             {/* Merchant Search */}
-            <div>
+            <div className="flex-1 min-w-[200px]">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Merchant
               </label>
@@ -900,7 +899,7 @@ export default function DashboardV2() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 />
                 {merchantSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
                     {merchantSuggestions.map((merchant) => (
                       <button
                         key={merchant}
@@ -917,14 +916,51 @@ export default function DashboardV2() {
                 )}
               </div>
             </div>
+            {/* Time View Filter */}
+            <div className="w-auto">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Time View
+              </label>
+              <div className="relative">
+                <select
+                  value={timeGranularity}
+                  onChange={(e) => setTimeGranularity(e.target.value as 'monthly' | 'weekly')}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none text-left"
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <svg
+                    className="w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            {/* Clear Filters Button */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 invisible">
+                Clear
+              </label>
+              <button
+                onClick={handleClearFilters}
+                className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+              >
+                Clear Filters
+              </button>
+            </div>
           </div>
           <div className="mt-4 flex items-center gap-4">
-            <button
-              onClick={handleClearFilters}
-              className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-            >
-              Clear Filters
-            </button>
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -934,20 +970,12 @@ export default function DashboardV2() {
               />
               <span className="text-sm text-gray-700">Only spending transactions</span>
             </label>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-700">Time View:</label>
-              <select
-                value={timeGranularity}
-                onChange={(e) => setTimeGranularity(e.target.value as 'monthly' | 'weekly')}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="monthly">Monthly</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            </div>
           </div>
         </div>
+      </div>
 
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow p-6">
