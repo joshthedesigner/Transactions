@@ -143,7 +143,6 @@ export default function DashboardV2() {
   const loadPaginatedData = useCallback(async () => {
     try {
       const activeFilters: DashboardFilters = {
-        ...filters,
         startDate: dateRange.start,
         endDate: dateRange.end,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
