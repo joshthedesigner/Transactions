@@ -23,6 +23,9 @@ import {
   getPaginatedTransactions,
   getAvailableCategories,
   getAvailableMerchants,
+  updateTransactionCategory,
+  bulkUpdateTransactionCategories,
+  getAllCategories,
   type DashboardMetrics,
   type CategorySpending,
   type MerchantSpending,
@@ -88,6 +91,19 @@ export default function DashboardV2() {
   // Sorting
   const [sortColumn, setSortColumn] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
+  const [editedCategories, setEditedCategories] = useState<Map<number, string | null>>(new Map());
+  const [allCategories, setAllCategories] = useState<Array<{ id: number; name: string }>>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [bulkEditModalOpen, setBulkEditModalOpen] = useState(false);
+  const [bulkEditCategory, setBulkEditCategory] = useState<string>('');
+  const [cancelConfirmModalOpen, setCancelConfirmModalOpen] = useState(false);
+  const [actionDropdownOpen, setActionDropdownOpen] = useState(false);
+  const actionDropdownRef = useRef<HTMLDivElement>(null);
 
   // ============================================================================
   // LOAD DATA
@@ -183,6 +199,19 @@ export default function DashboardV2() {
     loadPaginatedData();
   }, [loadPaginatedData]);
 
+  // Load all categories on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const categories = await getAllCategories();
+        setAllCategories(categories);
+      } catch (e) {
+        console.error('Error loading categories:', e);
+      }
+    };
+    loadCategories();
+  }, []);
+
   // Close category dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -192,16 +221,22 @@ export default function DashboardV2() {
       ) {
         setCategoryDropdownOpen(false);
       }
+      if (
+        actionDropdownRef.current &&
+        !actionDropdownRef.current.contains(event.target as Node)
+      ) {
+        setActionDropdownOpen(false);
+      }
     };
 
-    if (categoryDropdownOpen) {
+    if (categoryDropdownOpen || actionDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [categoryDropdownOpen]);
+  }, [categoryDropdownOpen, actionDropdownOpen]);
 
   // ============================================================================
   // HANDLERS
@@ -270,6 +305,144 @@ export default function DashboardV2() {
       month: 'short',
       day: 'numeric',
     });
+  };
+
+  // ============================================================================
+  // EDIT MODE HANDLERS
+  // ============================================================================
+
+  const handleToggleSelectAll = () => {
+    if (selectedTransactionIds.size === paginatedTransactions.length) {
+      setSelectedTransactionIds(new Set());
+    } else {
+      setSelectedTransactionIds(new Set(paginatedTransactions.map(t => t.id)));
+    }
+  };
+
+  const handleToggleTransaction = (transactionId: number) => {
+    setSelectedTransactionIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(transactionId)) {
+        newSet.delete(transactionId);
+      } else {
+        newSet.add(transactionId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleEnterEditMode = () => {
+    setIsEditMode(true);
+    setEditedCategories(new Map());
+    setActionDropdownOpen(false);
+  };
+
+  const handleEnterBulkEditMode = () => {
+    if (selectedTransactionIds.size === 0) {
+      setSaveMessage({ type: 'error', text: 'Please select at least one transaction' });
+      setTimeout(() => setSaveMessage(null), 3000);
+      setActionDropdownOpen(false);
+      return;
+    }
+    setBulkEditCategory('');
+    setBulkEditModalOpen(true);
+    setActionDropdownOpen(false);
+  };
+
+  const handleCategoryChange = (transactionId: number, category: string | null) => {
+    setEditedCategories(prev => {
+      const newMap = new Map(prev);
+      newMap.set(transactionId, category);
+      return newMap;
+    });
+  };
+
+  const handleSave = async () => {
+    if (editedCategories.size === 0) {
+      setSaveMessage({ type: 'error', text: 'No changes to save' });
+      setTimeout(() => setSaveMessage(null), 3000);
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage(null);
+
+    try {
+      const updates = Array.from(editedCategories.entries()).map(([id, category]) =>
+        updateTransactionCategory(id, category)
+      );
+
+      await Promise.all(updates);
+
+      setSaveMessage({ type: 'success', text: `Successfully updated ${editedCategories.size} transaction(s)` });
+      setIsEditMode(false);
+      setEditedCategories(new Map());
+      setSelectedTransactionIds(new Set());
+      
+      // Reload data
+      await loadPaginatedData();
+      
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      setSaveMessage({ 
+        type: 'error', 
+        text: error instanceof Error ? error.message : 'Failed to save changes' 
+      });
+      setTimeout(() => setSaveMessage(null), 5000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setCancelConfirmModalOpen(true);
+  };
+
+  const handleConfirmCancel = () => {
+    setIsEditMode(false);
+    setEditedCategories(new Map());
+    setCancelConfirmModalOpen(false);
+  };
+
+  const handleBulkEditSave = async (category: string) => {
+    if (selectedTransactionIds.size === 0) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage(null);
+    setBulkEditModalOpen(false);
+
+    try {
+      const result = await bulkUpdateTransactionCategories(
+        Array.from(selectedTransactionIds),
+        category
+      );
+
+      if (result.success) {
+        setSaveMessage({ 
+          type: 'success', 
+          text: `Successfully updated ${result.updated} transaction(s)` 
+        });
+        setSelectedTransactionIds(new Set());
+        
+        // Reload data
+        await loadPaginatedData();
+        
+        setTimeout(() => setSaveMessage(null), 3000);
+      } else {
+        setSaveMessage({ type: 'error', text: result.error || 'Failed to update transactions' });
+        setTimeout(() => setSaveMessage(null), 5000);
+      }
+    } catch (error) {
+      setSaveMessage({ 
+        type: 'error', 
+        text: error instanceof Error ? error.message : 'Failed to save changes' 
+      });
+      setTimeout(() => setSaveMessage(null), 5000);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ============================================================================
@@ -681,8 +854,58 @@ export default function DashboardV2() {
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold">All Transactions</h2>
-            <div className="text-sm text-gray-600">
-              Showing {paginatedTransactions.length} of {totalTransactions.toLocaleString()}
+            <div className="flex items-center gap-4">
+              {!isEditMode ? (
+                <div className="relative" ref={actionDropdownRef}>
+                  <button
+                    onClick={() => setActionDropdownOpen(!actionDropdownOpen)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium flex items-center gap-1"
+                  >
+                    Edit Categories
+                    <svg
+                      className={`w-4 h-4 transition-transform ${actionDropdownOpen ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {actionDropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                      <button
+                        onClick={handleEnterEditMode}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={handleEnterBulkEditMode}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Bulk Edit
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving || editedCategories.size === 0}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  >
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           {loading && paginatedTransactions.length === 0 ? (
@@ -696,9 +919,20 @@ export default function DashboardV2() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th
+                        className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        style={{ width: '5%' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTransactionIds.size === paginatedTransactions.length && paginatedTransactions.length > 0}
+                          onChange={handleToggleSelectAll}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </th>
+                      <th
                         onClick={() => handleSort('date')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '15%' }}
+                        style={{ width: '12%' }}
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Date</span>
@@ -714,7 +948,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('merchant')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '40%' }}
+                        style={{ width: '35%' }}
                       >
                         <div className="flex items-center gap-1 w-full">
                           <span className="flex-1">Merchant</span>
@@ -746,7 +980,7 @@ export default function DashboardV2() {
                       <th
                         onClick={() => handleSort('category')}
                         className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                        style={{ width: '30%' }}
+                        style={{ width: '28%' }}
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Category</span>
@@ -762,28 +996,58 @@ export default function DashboardV2() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {paginatedTransactions.map((transaction) => (
-                      <tr key={transaction.id} className="hover:bg-gray-50">
-                        <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {formatDate(transaction.date)}
-                        </td>
-                        <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-900 overflow-hidden text-ellipsis">{transaction.merchant}</td>
-                        <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
-                          {formatCurrency(transaction.amount)}
-                        </td>
-                        <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap">
-                          {transaction.category ? (
-                            <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                              {transaction.category}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
-                              Uncategorized
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {paginatedTransactions.map((transaction) => {
+                      const editedCategory = editedCategories.get(transaction.id);
+                      const displayCategory = editedCategory !== undefined 
+                        ? editedCategory 
+                        : transaction.category;
+                      
+                      return (
+                        <tr key={transaction.id} className="hover:bg-gray-50">
+                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap">
+                            <input
+                              type="checkbox"
+                              checked={selectedTransactionIds.has(transaction.id)}
+                              onChange={() => handleToggleTransaction(transaction.id)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {formatDate(transaction.date)}
+                          </td>
+                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-900 overflow-hidden text-ellipsis">{transaction.merchant}</td>
+                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
+                            {formatCurrency(transaction.amount)}
+                          </td>
+                          <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap">
+                            {isEditMode ? (
+                              <select
+                                value={displayCategory || ''}
+                                onChange={(e) => handleCategoryChange(transaction.id, e.target.value || null)}
+                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Uncategorized</option>
+                                {allCategories.map((cat) => (
+                                  <option key={cat.id} value={cat.name}>
+                                    {cat.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              displayCategory ? (
+                                <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+                                  {displayCategory}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
+                                  Uncategorized
+                                </span>
+                              )
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -815,6 +1079,113 @@ export default function DashboardV2() {
           )}
         </div>
       </div>
+
+      {/* Bulk Edit Modal */}
+      {bulkEditModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Bulk Edit Categories</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Updating {selectedTransactionIds.size} transaction(s)
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Category
+              </label>
+              <select
+                value={bulkEditCategory}
+                onChange={(e) => setBulkEditCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="" disabled>Select a category</option>
+                {allCategories.map((cat) => (
+                  <option key={cat.id} value={cat.name}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setBulkEditModalOpen(false);
+                  setBulkEditCategory('');
+                }}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (bulkEditCategory) {
+                    handleBulkEditSave(bulkEditCategory);
+                  }
+                }}
+                disabled={isSaving || !bulkEditCategory}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Confirmation Modal */}
+      {cancelConfirmModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Cancel Changes?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              You have unsaved changes. Are you sure you want to cancel? All changes will be lost.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setCancelConfirmModalOpen(false)}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              >
+                Keep Editing
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Cancel Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {saveMessage && (
+        <div className="fixed bottom-4 left-4 z-50 animate-in slide-in-from-bottom-5">
+          <div className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 min-w-[300px] ${
+            saveMessage.type === 'success' 
+              ? 'bg-green-600 text-white' 
+              : 'bg-red-600 text-white'
+          }`}>
+            {saveMessage.type === 'success' ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            <span className="flex-1 text-sm font-medium">{saveMessage.text}</span>
+            <button
+              onClick={() => setSaveMessage(null)}
+              className="text-white hover:text-gray-200"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

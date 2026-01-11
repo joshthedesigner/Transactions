@@ -641,3 +641,103 @@ export async function getAvailableMerchants(search?: string): Promise<string[]> 
   return uniqueMerchants;
 }
 
+// ============================================================================
+// 9. UPDATE TRANSACTION CATEGORIES
+// ============================================================================
+
+/**
+ * Update a single transaction's category
+ */
+export async function updateTransactionCategory(
+  transactionId: number,
+  category: string | null
+): Promise<void> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  // Verify ownership
+  const { data: transaction, error: checkError } = await supabase
+    .from('transactions_v2')
+    .select('id')
+    .eq('id', transactionId)
+    .eq('user_id', userId)
+    .single();
+
+  if (checkError || !transaction) {
+    throw new Error('Transaction not found or access denied');
+  }
+
+  // Update category
+  const { error: updateError } = await supabase
+    .from('transactions_v2')
+    .update({ category })
+    .eq('id', transactionId)
+    .eq('user_id', userId);
+
+  if (updateError) {
+    throw new Error(`Failed to update transaction: ${updateError.message}`);
+  }
+}
+
+/**
+ * Bulk update categories for multiple transactions
+ */
+export async function bulkUpdateTransactionCategories(
+  transactionIds: number[],
+  category: string
+): Promise<{ success: boolean; updated: number; error?: string }> {
+  const supabase = await createClient();
+  const userId = await getUserId();
+
+  if (transactionIds.length === 0) {
+    return { success: false, updated: 0, error: 'No transactions selected' };
+  }
+
+  // Verify ownership of all transactions
+  const { data: transactions, error: checkError } = await supabase
+    .from('transactions_v2')
+    .select('id')
+    .eq('user_id', userId)
+    .in('id', transactionIds);
+
+  if (checkError) {
+    return { success: false, updated: 0, error: checkError.message };
+  }
+
+  if (!transactions || transactions.length !== transactionIds.length) {
+    return { success: false, updated: 0, error: 'Some transactions not found or access denied' };
+  }
+
+  // Update all transactions
+  const { data: updated, error: updateError } = await supabase
+    .from('transactions_v2')
+    .update({ category })
+    .eq('user_id', userId)
+    .in('id', transactionIds)
+    .select();
+
+  if (updateError) {
+    return { success: false, updated: 0, error: updateError.message };
+  }
+
+  return { success: true, updated: updated?.length || 0 };
+}
+
+/**
+ * Get all categories from the categories table
+ */
+export async function getAllCategories(): Promise<Array<{ id: number; name: string }>> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('categories')
+    .select('id, name')
+    .order('name');
+
+  if (error) {
+    throw new Error(`Failed to fetch categories: ${error.message}`);
+  }
+
+  return data || [];
+}
+
