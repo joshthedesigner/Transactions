@@ -504,10 +504,12 @@ export async function getPaginatedTransactions(
     .select('*', { count: 'exact', head: true });
 
   if (countError) {
+    console.error('Count query error:', countError);
     throw new Error(`Failed to get count: ${countError.message}`);
   }
 
   const total = count || 0;
+  console.log('Transaction count:', total, 'Filters:', filters);
 
   // Map frontend column names to database column names
   const columnMap: Record<string, string> = {
