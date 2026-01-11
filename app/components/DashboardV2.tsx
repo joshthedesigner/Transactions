@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   BarChart,
   Bar,
@@ -70,7 +70,9 @@ export default function DashboardV2() {
     onlySpending: true,
   });
   const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const [merchantSearch, setMerchantSearch] = useState<string>('');
   const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
   const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
@@ -132,7 +134,7 @@ export default function DashboardV2() {
     } finally {
       setLoading(false);
     }
-  }, [filters, dateRange, selectedCategory, merchantSearch, timeGranularity, timeMetricType]);
+  }, [filters, dateRange, selectedCategories, merchantSearch, timeGranularity, timeMetricType]);
 
   const loadPaginatedData = useCallback(async () => {
     try {
@@ -140,7 +142,7 @@ export default function DashboardV2() {
         ...filters,
         startDate: dateRange.start,
         endDate: dateRange.end,
-        category: selectedCategory || undefined,
+        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
         merchant: merchantSearch || undefined,
       };
 
@@ -151,7 +153,7 @@ export default function DashboardV2() {
     } catch (e) {
       console.error('Error loading paginated transactions:', e);
     }
-  }, [filters, dateRange, selectedCategory, merchantSearch, currentPage]);
+  }, [filters, dateRange, selectedCategories, merchantSearch, currentPage]);
 
   // Load merchant suggestions for autocomplete
   const loadMerchantSuggestions = useCallback(async (search: string) => {
@@ -177,6 +179,26 @@ export default function DashboardV2() {
     loadPaginatedData();
   }, [loadPaginatedData]);
 
+  // Close category dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        categoryDropdownRef.current &&
+        !categoryDropdownRef.current.contains(event.target as Node)
+      ) {
+        setCategoryDropdownOpen(false);
+      }
+    };
+
+    if (categoryDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [categoryDropdownOpen]);
+
   // ============================================================================
   // HANDLERS
   // ============================================================================
@@ -186,8 +208,23 @@ export default function DashboardV2() {
     setCurrentPage(0); // Reset pagination
   };
 
-  const handleCategoryChange = (category: string) => {
-    setSelectedCategory(category);
+  const handleCategoryToggle = (category: string) => {
+    setSelectedCategories(prev => {
+      if (prev.includes(category)) {
+        return prev.filter(c => c !== category);
+      } else {
+        return [...prev, category];
+      }
+    });
+    setCurrentPage(0);
+  };
+
+  const handleSelectAllCategories = () => {
+    if (selectedCategories.length === availableCategories.length) {
+      setSelectedCategories([]);
+    } else {
+      setSelectedCategories([...availableCategories]);
+    }
     setCurrentPage(0);
   };
 
@@ -199,7 +236,7 @@ export default function DashboardV2() {
 
   const handleClearFilters = () => {
     setDateRange({});
-    setSelectedCategory('');
+    setSelectedCategories([]);
     setMerchantSearch('');
     setCurrentPage(0);
   };
@@ -291,23 +328,72 @@ export default function DashboardV2() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            {/* Category Filter */}
-            <div>
+            {/* Category Filter - Multi-select */}
+            <div className="relative" ref={categoryDropdownRef}>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Category
+                Categories
               </label>
-              <select
-                value={selectedCategory}
-                onChange={(e) => handleCategoryChange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              <button
+                type="button"
+                onClick={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-left flex items-center justify-between"
               >
-                <option value="">All Categories</option>
-                {availableCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
+                <span className="text-gray-700">
+                  {selectedCategories.length === 0
+                    ? 'All Categories'
+                    : selectedCategories.length === 1
+                    ? selectedCategories[0]
+                    : `${selectedCategories.length} selected`}
+                </span>
+                <svg
+                  className={`w-5 h-5 text-gray-400 transition-transform ${
+                    categoryDropdownOpen ? 'transform rotate-180' : ''
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {categoryDropdownOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  <div className="p-2 border-b border-gray-200">
+                    <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
+                      <input
+                        type="checkbox"
+                        checked={selectedCategories.length === availableCategories.length}
+                        onChange={handleSelectAllCategories}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Select All
+                      </span>
+                    </label>
+                  </div>
+                  <div className="p-2">
+                    {availableCategories.map((cat) => (
+                      <label
+                        key={cat}
+                        className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCategories.includes(cat)}
+                          onChange={() => handleCategoryToggle(cat)}
+                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <span className="text-sm text-gray-700">{cat}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             {/* Merchant Search */}
             <div>

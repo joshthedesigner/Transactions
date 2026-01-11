@@ -51,7 +51,8 @@ export type TransactionRow = {
 export type DashboardFilters = {
   startDate?: string;
   endDate?: string;
-  category?: string;
+  category?: string; // Single category (deprecated, use categories)
+  categories?: string[]; // Multiple categories
   merchant?: string;
   onlySpending?: boolean; // Default true
 };
@@ -127,8 +128,11 @@ function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters
     query = query.lte('transaction_date', filters.endDate);
   }
 
-  // Category filter
-  if (filters.category) {
+  // Category filter (support multiple categories)
+  if (filters.categories && filters.categories.length > 0) {
+    query = query.in('category', filters.categories);
+  } else if (filters.category) {
+    // Legacy single category support
     query = query.eq('category', filters.category);
   }
 
