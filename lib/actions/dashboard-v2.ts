@@ -500,12 +500,13 @@ export async function getPaginatedTransactions(
   const dataQuery = buildBaseQuery(supabase, userId, filters);
 
   // Get total count - build query with select first, then filters
+  // For count queries, we need to call select() with count option first
   let countQueryBuilder = supabase
     .from('transactions_v2')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
   
-  // Apply filters to count query
+  // Apply filters to count query (must reassign to maintain chain)
   if (filters.onlySpending !== false) {
     countQueryBuilder = countQueryBuilder.gt('amount_spending', 0);
   }
