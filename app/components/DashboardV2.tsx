@@ -1,6 +1,26 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+
+// ============================================================================
+// DEBOUNCE HOOK
+// ============================================================================
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 import {
   BarChart,
   Bar,
@@ -62,6 +82,16 @@ export default function DashboardV2() {
   // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Per-section loading states
+  const [metricsLoading, setMetricsLoading] = useState(true);
+  const [categoryDataLoading, setCategoryDataLoading] = useState(true);
+  const [merchantDataLoading, setMerchantDataLoading] = useState(true);
+  const [timeSeriesLoading, setTimeSeriesLoading] = useState(true);
+  const [categoryTimeSeriesLoading, setCategoryTimeSeriesLoading] = useState(true);
+  const [recentTransactionsLoading, setRecentTransactionsLoading] = useState(true);
+  const [paginatedTransactionsLoading, setPaginatedTransactionsLoading] = useState(false);
+  
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [categoryData, setCategoryData] = useState<CategorySpending[]>([]);
   const [merchantData, setMerchantData] = useState<MerchantSpending[]>([]);
@@ -70,6 +100,10 @@ export default function DashboardV2() {
   const [recentTransactions, setRecentTransactions] = useState<TransactionRow[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [merchantSuggestions, setMerchantSuggestions] = useState<string[]>([]);
+  
+  // Track if categories have been loaded (don't reload on filter changes)
+  const categoriesLoadedRef = useRef(false);
+  const secondaryCategoriesLoadedRef = useRef(false);
 
   // Filters
   const [filters, setFilters] = useState<DashboardFilters>({
@@ -88,6 +122,12 @@ export default function DashboardV2() {
   const [selectedMerchants, setSelectedMerchants] = useState<string[]>([]);
   const [merchantInputValue, setMerchantInputValue] = useState<string>('');
   const merchantDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Debounced filter values for data loading (must be after all state declarations)
+  const debouncedDateRange = useDebounce(dateRange, 400);
+  const debouncedSelectedCategories = useDebounce(selectedCategories, 400);
+  const debouncedSelectedSecondaryCategories = useDebounce(selectedSecondaryCategories, 400);
+  const debouncedSelectedMerchants = useDebounce(selectedMerchants, 400);
   const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
   const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
   const [timeMetricType, setTimeMetricType] = useState<'amount' | 'count'>('amount');
@@ -133,61 +173,105 @@ export default function DashboardV2() {
     try {
       setLoading(true);
       setError(null);
+      
+      // Set per-section loading states
+      setMetricsLoading(true);
+      setCategoryDataLoading(true);
+      setMerchantDataLoading(true);
+      setTimeSeriesLoading(true);
+      setCategoryTimeSeriesLoading(true);
+      setRecentTransactionsLoading(true);
 
       const activeFilters: DashboardFilters = {
         ...filters,
-        startDate: dateRange.start,
-        endDate: dateRange.end,
-        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
-        secondaryCategories: selectedSecondaryCategories.length > 0 ? selectedSecondaryCategories : undefined,
-        merchants: selectedMerchants.length > 0 ? selectedMerchants : undefined,
+        startDate: debouncedDateRange.start,
+        endDate: debouncedDateRange.end,
+        categories: debouncedSelectedCategories.length > 0 ? debouncedSelectedCategories : undefined,
+        secondaryCategories: debouncedSelectedSecondaryCategories.length > 0 ? debouncedSelectedSecondaryCategories : undefined,
+        merchants: debouncedSelectedMerchants.length > 0 ? debouncedSelectedMerchants : undefined,
       };
 
-      // Load all data in parallel
-      const [
-        metricsResult,
-        categoryResult,
-        merchantResult,
-        timeSeriesResult,
-        categoryTimeSeriesResult,
-        recentResult,
-        categoriesResult,
-        secondaryCategoriesResult,
-      ] = await Promise.all([
-        getDashboardMetrics(activeFilters),
-        getSpendingByCategory(activeFilters, categoryType),
-        getTopMerchants(20, activeFilters),
-        getSpendingOverTime(timeGranularity, activeFilters),
-        getSpendingByCategoryOverTime(timeGranularity, activeFilters, timeMetricType, timeCategoryType),
-        getRecentTransactions(50, activeFilters),
-        getAvailableCategories(),
-        getAvailableSecondaryCategories(),
-      ]);
+      // Load filter-dependent data in parallel
+      const dataPromises = [
+        getDashboardMetrics(activeFilters).then(result => {
+          setMetrics(result);
+          setMetricsLoading(false);
+          return result;
+        }),
+        getSpendingByCategory(activeFilters, categoryType).then(result => {
+          setCategoryData(result);
+          setCategoryDataLoading(false);
+          return result;
+        }),
+        getTopMerchants(20, activeFilters).then(result => {
+          setMerchantData(result);
+          setMerchantDataLoading(false);
+          return result;
+        }),
+        getSpendingOverTime(timeGranularity, activeFilters).then(result => {
+          setTimeSeriesData(result);
+          setTimeSeriesLoading(false);
+          return result;
+        }),
+        getSpendingByCategoryOverTime(timeGranularity, activeFilters, timeMetricType, timeCategoryType).then(result => {
+          setCategoryTimeSeriesData(result);
+          setCategoryTimeSeriesLoading(false);
+          return result;
+        }),
+        getRecentTransactions(50, activeFilters).then(result => {
+          setRecentTransactions(result);
+          setRecentTransactionsLoading(false);
+          return result;
+        }),
+      ];
 
-      setMetrics(metricsResult);
-      setCategoryData(categoryResult);
-      setMerchantData(merchantResult);
-      setTimeSeriesData(timeSeriesResult);
-      setCategoryTimeSeriesData(categoryTimeSeriesResult);
-      setRecentTransactions(recentResult);
-      setAvailableCategories(categoriesResult);
-      setAvailableSecondaryCategories(secondaryCategoriesResult);
+      // Load category lists only if not already loaded (they don't depend on filters)
+      const categoryPromises: Promise<any>[] = [];
+      if (!categoriesLoadedRef.current) {
+        categoryPromises.push(
+          getAvailableCategories().then(result => {
+            setAvailableCategories(result);
+            categoriesLoadedRef.current = true;
+            return result;
+          })
+        );
+      }
+      if (!secondaryCategoriesLoadedRef.current) {
+        categoryPromises.push(
+          getAvailableSecondaryCategories().then(result => {
+            setAvailableSecondaryCategories(result);
+            secondaryCategoriesLoadedRef.current = true;
+            return result;
+          })
+        );
+      }
+
+      // Wait for all promises
+      await Promise.all([...dataPromises, ...categoryPromises]);
     } catch (e) {
       console.error('Error loading dashboard data:', e);
       setError(e instanceof Error ? e.message : 'Failed to load dashboard data');
+      // Reset loading states on error
+      setMetricsLoading(false);
+      setCategoryDataLoading(false);
+      setMerchantDataLoading(false);
+      setTimeSeriesLoading(false);
+      setCategoryTimeSeriesLoading(false);
+      setRecentTransactionsLoading(false);
     } finally {
       setLoading(false);
     }
-  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, selectedMerchants, timeGranularity, timeViewMode, timeMetricType, categoryType, timeCategoryType]);
+  }, [filters, debouncedDateRange, debouncedSelectedCategories, debouncedSelectedSecondaryCategories, debouncedSelectedMerchants, timeGranularity, timeViewMode, timeMetricType, categoryType, timeCategoryType]);
 
   const loadPaginatedData = useCallback(async () => {
     try {
+      setPaginatedTransactionsLoading(true);
       const activeFilters: DashboardFilters = {
-        startDate: dateRange.start,
-        endDate: dateRange.end,
-        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
-        secondaryCategories: selectedSecondaryCategories.length > 0 ? selectedSecondaryCategories : undefined,
-        merchants: selectedMerchants.length > 0 ? selectedMerchants : undefined,
+        startDate: debouncedDateRange.start,
+        endDate: debouncedDateRange.end,
+        categories: debouncedSelectedCategories.length > 0 ? debouncedSelectedCategories : undefined,
+        secondaryCategories: debouncedSelectedSecondaryCategories.length > 0 ? debouncedSelectedSecondaryCategories : undefined,
+        merchants: debouncedSelectedMerchants.length > 0 ? debouncedSelectedMerchants : undefined,
         onlySpending: false, // Show all transactions (including credits/payments) in the table
       };
 
@@ -197,10 +281,15 @@ export default function DashboardV2() {
       setHasMore(result.hasMore);
     } catch (e) {
       console.error('Error loading paginated transactions:', e);
+    } finally {
+      setPaginatedTransactionsLoading(false);
     }
-  }, [filters, dateRange, selectedCategories, selectedSecondaryCategories, selectedMerchants, currentPage, sortColumn, sortDirection]);
+  }, [filters, debouncedDateRange, debouncedSelectedCategories, debouncedSelectedSecondaryCategories, debouncedSelectedMerchants, currentPage, sortColumn, sortDirection]);
 
-  // Load merchant suggestions for autocomplete
+  // Debounced merchant input for suggestions
+  const debouncedMerchantInput = useDebounce(merchantInputValue, 250);
+  
+  // Load merchant suggestions for autocomplete (debounced)
   const loadMerchantSuggestions = useCallback(async (search: string) => {
     if (search.length < 2) {
       setMerchantSuggestions([]);
@@ -213,6 +302,11 @@ export default function DashboardV2() {
       console.error('Error loading merchants:', e);
     }
   }, []);
+  
+  // Load suggestions when debounced input changes
+  useEffect(() => {
+    loadMerchantSuggestions(debouncedMerchantInput);
+  }, [debouncedMerchantInput, loadMerchantSuggestions]);
 
   // Initial load
   useEffect(() => {
@@ -282,6 +376,8 @@ export default function DashboardV2() {
   const handleDateRangeChange = (field: 'start' | 'end', value: string) => {
     setDateRange(prev => ({ ...prev, [field]: value || undefined }));
     setCurrentPage(0); // Reset pagination
+    // Clear transactions to show loading state (will be debounced)
+    setPaginatedTransactions([]);
   };
 
   const handleCategoryToggle = (category: string) => {
@@ -306,6 +402,8 @@ export default function DashboardV2() {
     setSelectedCategories(pendingSelectedCategories);
     setCurrentPage(0);
     setCategoryDropdownOpen(false);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleResetCategoryFilter = () => {
@@ -313,11 +411,13 @@ export default function DashboardV2() {
     setSelectedCategories([]);
     setCurrentPage(0);
     setCategoryDropdownOpen(false);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleMerchantInputChange = (value: string) => {
     setMerchantInputValue(value);
-    loadMerchantSuggestions(value);
+    // Suggestions will load automatically via debounced effect
   };
 
   const handleMerchantSelect = (merchant: string) => {
@@ -327,11 +427,15 @@ export default function DashboardV2() {
     setMerchantInputValue('');
     setMerchantSuggestions([]);
     setCurrentPage(0);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleMerchantRemove = (merchant: string) => {
     setSelectedMerchants(prev => prev.filter(m => m !== merchant));
     setCurrentPage(0);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleClearMerchantInput = () => {
@@ -343,9 +447,13 @@ export default function DashboardV2() {
     setDateRange({});
     setSelectedCategories([]);
     setPendingSelectedCategories([]);
+    setSelectedSecondaryCategories([]);
+    setPendingSelectedSecondaryCategories([]);
     setSelectedMerchants([]);
     setMerchantInputValue('');
     setCurrentPage(0);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleSort = (column: string) => {
@@ -589,6 +697,8 @@ export default function DashboardV2() {
     setSelectedSecondaryCategories(pendingSelectedSecondaryCategories);
     setCurrentPage(0);
     setSecondaryCategoryDropdownOpen(false);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleResetSecondaryCategoryFilter = () => {
@@ -596,6 +706,8 @@ export default function DashboardV2() {
     setSelectedSecondaryCategories([]);
     setCurrentPage(0);
     setSecondaryCategoryDropdownOpen(false);
+    // Clear transactions to show loading state
+    setPaginatedTransactions([]);
   };
 
   const handleBulkEditSave = async (category: string, secondaryCategory: string | null = null) => {
@@ -666,7 +778,12 @@ export default function DashboardV2() {
   // RENDER
   // ============================================================================
 
-  if (loading && !metrics) {
+  // Determine if page is in initial loading state
+  // Use loading state directly - it's only false when ALL data has finished loading
+  const isInitialLoading = loading;
+  
+  // Show full loading screen only on initial load (when no metrics exist yet)
+  if (loading && !metrics && metricsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -694,10 +811,6 @@ export default function DashboardV2() {
     );
   }
 
-  if (!metrics) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sticky Filters Sub-Nav */}
@@ -713,7 +826,8 @@ export default function DashboardV2() {
                 type="date"
                 value={dateRange.start || ''}
                 onChange={(e) => handleDateRangeChange('start', e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                disabled={isInitialLoading}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
             <div className="w-auto">
@@ -724,7 +838,8 @@ export default function DashboardV2() {
                 type="date"
                 value={dateRange.end || ''}
                 onChange={(e) => handleDateRangeChange('end', e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                disabled={isInitialLoading}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
             {/* Category Filter - Multi-select */}
@@ -741,7 +856,8 @@ export default function DashboardV2() {
                   }
                   setCategoryDropdownOpen(!categoryDropdownOpen);
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-left flex items-center justify-between"
+                disabled={isInitialLoading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-left flex items-center justify-between disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="text-gray-700">
                   {selectedCategories.length === 0
@@ -774,7 +890,8 @@ export default function DashboardV2() {
                         type="checkbox"
                         checked={pendingSelectedCategories.length === availableCategories.length && availableCategories.length > 0}
                         onChange={handleSelectAllCategories}
-                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        disabled={isInitialLoading}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <span className="text-sm font-medium text-gray-700">
                         Select All
@@ -791,7 +908,8 @@ export default function DashboardV2() {
                           type="checkbox"
                           checked={pendingSelectedCategories.includes(cat)}
                           onChange={() => handleCategoryToggle(cat)}
-                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          disabled={isInitialLoading}
+                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <span className="text-sm text-gray-700">{cat}</span>
                       </label>
@@ -800,13 +918,15 @@ export default function DashboardV2() {
                   <div className="p-2 border-t border-gray-200 flex items-center justify-between gap-2 flex-shrink-0">
                     <button
                       onClick={handleResetCategoryFilter}
-                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      disabled={isInitialLoading}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reset
                     </button>
                     <button
                       onClick={handleApplyCategoryFilter}
-                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      disabled={isInitialLoading}
+                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Filter
                     </button>
@@ -828,7 +948,8 @@ export default function DashboardV2() {
                   }
                   setSecondaryCategoryDropdownOpen(!secondaryCategoryDropdownOpen);
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 bg-white text-left flex items-center justify-between"
+                disabled={isInitialLoading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 bg-white text-left flex items-center justify-between disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="text-gray-700">
                   {selectedSecondaryCategories.length === 0
@@ -861,7 +982,8 @@ export default function DashboardV2() {
                         type="checkbox"
                         checked={pendingSelectedSecondaryCategories.length === (1 + availableSecondaryCategories.length) && (availableSecondaryCategories.length > 0 || pendingSelectedSecondaryCategories.includes('__OTHER__'))}
                         onChange={handleSelectAllSecondaryCategories}
-                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        disabled={isInitialLoading}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <span className="text-sm font-medium text-gray-700">
                         Select All
@@ -876,7 +998,8 @@ export default function DashboardV2() {
                         type="checkbox"
                         checked={pendingSelectedSecondaryCategories.includes('__OTHER__')}
                         onChange={() => handleSecondaryCategoryToggle('__OTHER__')}
-                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        disabled={isInitialLoading}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <span className="text-sm text-gray-700">Other</span>
                     </label>
@@ -889,7 +1012,8 @@ export default function DashboardV2() {
                           type="checkbox"
                           checked={pendingSelectedSecondaryCategories.includes(tag)}
                           onChange={() => handleSecondaryCategoryToggle(tag)}
-                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          disabled={isInitialLoading}
+                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <span className="text-sm text-gray-700">{tag}</span>
                       </label>
@@ -898,13 +1022,15 @@ export default function DashboardV2() {
                   <div className="p-2 border-t border-gray-200 flex items-center justify-between gap-2 flex-shrink-0">
                     <button
                       onClick={handleResetSecondaryCategoryFilter}
-                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      disabled={isInitialLoading}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reset
                     </button>
                     <button
                       onClick={handleApplySecondaryCategoryFilter}
-                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      disabled={isInitialLoading}
+                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Filter
                     </button>
@@ -929,7 +1055,8 @@ export default function DashboardV2() {
                       <button
                         type="button"
                         onClick={() => handleMerchantRemove(merchant)}
-                        className="hover:text-blue-600 focus:outline-none"
+                        disabled={isInitialLoading}
+                        className="hover:text-blue-600 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label={`Remove ${merchant}`}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -944,14 +1071,16 @@ export default function DashboardV2() {
                     value={merchantInputValue}
                     onChange={(e) => handleMerchantInputChange(e.target.value)}
                     placeholder={selectedMerchants.length === 0 ? "Search merchants..." : ""}
-                    className="flex-1 min-w-[120px] border-0 outline-none focus:ring-0 p-0 text-sm"
+                    disabled={isInitialLoading}
+                    className="flex-1 min-w-[120px] border-0 outline-none focus:ring-0 p-0 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   {/* Clear Button */}
                   {merchantInputValue.length > 0 && (
                     <button
                       type="button"
                       onClick={handleClearMerchantInput}
-                      className="text-gray-400 hover:text-gray-600 focus:outline-none"
+                      disabled={isInitialLoading}
+                      className="text-gray-400 hover:text-gray-600 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label="Clear search"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -970,7 +1099,8 @@ export default function DashboardV2() {
                           key={merchant}
                           type="button"
                           onClick={() => handleMerchantSelect(merchant)}
-                          className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                          disabled={isInitialLoading}
+                          className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {merchant}
                         </button>
@@ -988,7 +1118,8 @@ export default function DashboardV2() {
                 <select
                   value={timeGranularity}
                   onChange={(e) => setTimeGranularity(e.target.value as 'monthly' | 'weekly')}
-                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none text-left"
+                  disabled={isInitialLoading}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none text-left disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="monthly">Monthly</option>
                   <option value="weekly">Weekly</option>
@@ -1032,23 +1163,43 @@ export default function DashboardV2() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow p-6">
             <p className="text-sm text-gray-600 mb-1">Total Spending</p>
-            <p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics.totalSpending)}</p>
+            {metricsLoading ? (
+              <div className="h-9 bg-gray-200 animate-pulse rounded"></div>
+            ) : (
+              <p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics?.totalSpending || 0)}</p>
+            )}
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <p className="text-sm text-gray-600 mb-1">Total Transactions</p>
-            <p className="text-3xl font-bold text-gray-900">{metrics.totalTransactions.toLocaleString()}</p>
+            {metricsLoading ? (
+              <div className="h-9 bg-gray-200 animate-pulse rounded"></div>
+            ) : (
+              <p className="text-3xl font-bold text-gray-900">{(metrics?.totalTransactions || 0).toLocaleString()}</p>
+            )}
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <p className="text-sm text-gray-600 mb-1">Categories</p>
-            <p className="text-3xl font-bold text-gray-900">{metrics.categoriesCovered}</p>
+            {metricsLoading ? (
+              <div className="h-9 bg-gray-200 animate-pulse rounded"></div>
+            ) : (
+              <p className="text-3xl font-bold text-gray-900">{metrics?.categoriesCovered || 0}</p>
+            )}
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <p className="text-sm text-gray-600 mb-1">Avg Transaction</p>
-            <p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics.averageTransaction)}</p>
+            {metricsLoading ? (
+              <div className="h-9 bg-gray-200 animate-pulse rounded"></div>
+            ) : (
+              <p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics?.averageTransaction || 0)}</p>
+            )}
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <p className="text-sm text-gray-600 mb-1">Uncategorized</p>
-            <p className="text-3xl font-bold text-yellow-600">{metrics.uncategorizedCount.toLocaleString()}</p>
+            {metricsLoading ? (
+              <div className="h-9 bg-gray-200 animate-pulse rounded"></div>
+            ) : (
+              <p className="text-3xl font-bold text-yellow-600">{(metrics?.uncategorizedCount || 0).toLocaleString()}</p>
+            )}
           </div>
         </div>
 
@@ -1060,7 +1211,8 @@ export default function DashboardV2() {
                 <select
                   value={timeMetricType}
                   onChange={(e) => setTimeMetricType(e.target.value as 'amount' | 'count')}
-                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isInitialLoading}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="amount">$ Amount</option>
                   <option value="count"># Transactions</option>
@@ -1068,7 +1220,8 @@ export default function DashboardV2() {
                 <select
                   value={timeViewMode}
                   onChange={(e) => setTimeViewMode(e.target.value as 'total' | 'byCategory')}
-                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isInitialLoading}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="total">Total</option>
                   <option value="byCategory">By Category</option>
@@ -1076,14 +1229,22 @@ export default function DashboardV2() {
                 <select
                   value={timeCategoryType}
                   onChange={(e) => setTimeCategoryType(e.target.value as 'primary' | 'secondary')}
-                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isInitialLoading}
+                  className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="primary">Primary Categories</option>
                   <option value="secondary">Secondary Categories</option>
                 </select>
               </div>
             </div>
-            {(timeViewMode === 'total' && timeCategoryType === 'primary') ? (
+            {timeSeriesLoading ? (
+              <div className="h-[300px] flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-500">Loading chart data...</p>
+                </div>
+              </div>
+            ) : (timeViewMode === 'total' && timeCategoryType === 'primary') ? (
               timeSeriesData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={timeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
@@ -1119,57 +1280,70 @@ export default function DashboardV2() {
                   No data available
                 </div>
               )
-            ) : (timeViewMode === 'byCategory' || timeCategoryType === 'secondary') && categoryTimeSeriesData.length > 0 ? (
-              (() => {
-                // Get all unique categories from the time series data (excluding 'period')
-                const categories = categoryTimeSeriesData.length > 0
-                  ? Object.keys(categoryTimeSeriesData[0]).filter(key => key !== 'period')
-                  : [];
-                // Limit to top 10 categories by total spending/transactions for readability
-                const topCategories = categories
-                  .map(cat => ({
-                    name: cat,
-                    total: categoryTimeSeriesData.reduce((sum, d) => sum + (Number(d[cat]) || 0), 0),
-                  }))
-                  .sort((a, b) => b.total - a.total)
-                  .slice(0, 10)
-                  .map(c => c.name);
+            ) : (timeViewMode === 'byCategory' || timeCategoryType === 'secondary') ? (
+              categoryTimeSeriesLoading ? (
+                <div className="h-[300px] flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-gray-500">Loading chart data...</p>
+                  </div>
+                </div>
+              ) : categoryTimeSeriesData.length > 0 ? (
+                (() => {
+                  // Get all unique categories from the time series data (excluding 'period')
+                  const categories = categoryTimeSeriesData.length > 0
+                    ? Object.keys(categoryTimeSeriesData[0]).filter(key => key !== 'period')
+                    : [];
+                  // Limit to top 10 categories by total spending/transactions for readability
+                  const topCategories = categories
+                    .map(cat => ({
+                      name: cat,
+                      total: categoryTimeSeriesData.reduce((sum, d) => sum + (Number(d[cat]) || 0), 0),
+                    }))
+                    .sort((a, b) => b.total - a.total)
+                    .slice(0, 10)
+                    .map(c => c.name);
 
-                return (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={categoryTimeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                      <YAxis 
-                        tickFormatter={(value) => 
-                          timeMetricType === 'amount' 
-                            ? `$${value.toLocaleString()}` 
-                            : value.toLocaleString()
-                        } 
-                      />
-                      <Tooltip
-                        formatter={(value: number) => 
-                          timeMetricType === 'amount' 
-                            ? formatCurrency(value)
-                            : `${value.toLocaleString()} transactions`
-                        }
-                        labelStyle={{ color: '#374151' }}
-                      />
-                      <Legend />
-                      {topCategories.map((cat, idx) => (
-                        <Line
-                          key={cat}
-                          type="monotone"
-                          dataKey={cat}
-                          stroke={COLORS[idx % COLORS.length]}
-                          strokeWidth={2}
-                          name={cat}
+                  return (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={categoryTimeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                        <YAxis 
+                          tickFormatter={(value) => 
+                            timeMetricType === 'amount' 
+                              ? `$${value.toLocaleString()}` 
+                              : value.toLocaleString()
+                          } 
                         />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                );
-              })()
+                        <Tooltip
+                          formatter={(value: number) => 
+                            timeMetricType === 'amount' 
+                              ? formatCurrency(value)
+                              : `${value.toLocaleString()} transactions`
+                          }
+                          labelStyle={{ color: '#374151' }}
+                        />
+                        <Legend />
+                        {topCategories.map((cat, idx) => (
+                          <Line
+                            key={cat}
+                            type="monotone"
+                            dataKey={cat}
+                            stroke={COLORS[idx % COLORS.length]}
+                            strokeWidth={2}
+                            name={cat}
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  );
+                })()
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-gray-500">
+                  No data available
+                </div>
+              )
             ) : (
               <div className="h-[300px] flex items-center justify-center text-gray-500">
                 No data available
@@ -1186,13 +1360,21 @@ export default function DashboardV2() {
               <select
                 value={categoryType}
                 onChange={(e) => setCategoryType(e.target.value as 'primary' | 'secondary')}
-                className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isInitialLoading}
+                className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="primary">Primary Categories</option>
                 <option value="secondary">Secondary Categories</option>
               </select>
             </div>
-            {categoryData.length > 0 ? (
+            {categoryDataLoading ? (
+              <div className="flex-1 min-h-[400px] flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-500">Loading chart data...</p>
+                </div>
+              </div>
+            ) : categoryData.length > 0 ? (
               <div className="flex-1 min-h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={categoryData} margin={{ left: 0, right: 10, top: 5, bottom: 20 }}>
@@ -1223,7 +1405,14 @@ export default function DashboardV2() {
           {/* Top Merchants */}
           <div className="bg-white rounded-lg shadow px-6 pt-6 pb-2 flex flex-col h-full">
             <h2 className="text-xl font-semibold mb-4">Top Merchants</h2>
-            {merchantData.length > 0 ? (
+            {merchantDataLoading ? (
+              <div className="h-[300px] flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-500">Loading merchant data...</p>
+                </div>
+              </div>
+            ) : merchantData.length > 0 ? (
               <div className="space-y-2 overflow-y-auto max-h-[400px]">
                 {merchantData.map((merchant, idx) => (
                   <div
@@ -1259,7 +1448,8 @@ export default function DashboardV2() {
                 <div className="relative" ref={actionDropdownRef}>
                   <button
                     onClick={() => setActionDropdownOpen(!actionDropdownOpen)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium flex items-center gap-1"
+                    disabled={isInitialLoading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium flex items-center gap-1 disabled:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Edit Categories
                     <svg
@@ -1275,13 +1465,15 @@ export default function DashboardV2() {
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
                       <button
                         onClick={handleEnterEditMode}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        disabled={isInitialLoading}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Edit
                       </button>
                       <button
                         onClick={handleEnterBulkEditMode}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        disabled={isInitialLoading}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Bulk Edit
                       </button>
@@ -1292,14 +1484,14 @@ export default function DashboardV2() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleCancel}
-                    disabled={isSaving}
+                    disabled={isSaving || isInitialLoading}
                     className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleSave}
-                    disabled={isSaving || (editedCategories.size === 0 && editedSecondaryCategories.size === 0)}
+                    disabled={isSaving || isInitialLoading || (editedCategories.size === 0 && editedSecondaryCategories.size === 0)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     {isSaving ? 'Saving...' : 'Save'}
@@ -1308,9 +1500,12 @@ export default function DashboardV2() {
               )}
             </div>
           </div>
-          {loading && paginatedTransactions.length === 0 ? (
+          {paginatedTransactionsLoading ? (
             <div className="h-64 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                <p className="text-sm text-gray-500">Loading transactions...</p>
+              </div>
             </div>
           ) : paginatedTransactions.length > 0 ? (
             <>
@@ -1326,12 +1521,15 @@ export default function DashboardV2() {
                           type="checkbox"
                           checked={selectedTransactionIds.size === paginatedTransactions.length && paginatedTransactions.length > 0}
                           onChange={handleToggleSelectAll}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          disabled={isInitialLoading}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                         />
                       </th>
                       <th
-                        onClick={() => handleSort('date')}
-                        className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => !isInitialLoading && handleSort('date')}
+                        className={`px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider select-none ${
+                          isInitialLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-gray-100'
+                        }`}
                         style={{ width: '12%' }}
                       >
                         <div className="flex items-center gap-1">
@@ -1346,8 +1544,10 @@ export default function DashboardV2() {
                         </div>
                       </th>
                       <th
-                        onClick={() => handleSort('merchant')}
-                        className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => !isInitialLoading && handleSort('merchant')}
+                        className={`px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider select-none ${
+                          isInitialLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-gray-100'
+                        }`}
                         style={{ width: '35%' }}
                       >
                         <div className="flex items-center gap-1 w-full">
@@ -1362,8 +1562,10 @@ export default function DashboardV2() {
                         </div>
                       </th>
                       <th
-                        onClick={() => handleSort('amount')}
-                        className="px-4 md:px-6 lg:px-8 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => !isInitialLoading && handleSort('amount')}
+                        className={`px-4 md:px-6 lg:px-8 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider select-none ${
+                          isInitialLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-gray-100'
+                        }`}
                         style={{ width: '15%' }}
                       >
                         <div className="flex items-center justify-end gap-1">
@@ -1378,8 +1580,10 @@ export default function DashboardV2() {
                         </div>
                       </th>
                       <th
-                        onClick={() => handleSort('category')}
-                        className="px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => !isInitialLoading && handleSort('category')}
+                        className={`px-4 md:px-6 lg:px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider select-none ${
+                          isInitialLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-gray-100'
+                        }`}
                         style={{ minWidth: '200px' }}
                       >
                         <div className="flex items-center gap-1">
@@ -1428,7 +1632,8 @@ export default function DashboardV2() {
                               type="checkbox"
                               checked={selectedTransactionIds.has(transaction.id)}
                               onChange={() => handleToggleTransaction(transaction.id)}
-                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              disabled={isInitialLoading}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                             />
                           </td>
                           <td className="px-4 md:px-6 lg:px-8 py-3 whitespace-nowrap text-sm text-gray-900">
@@ -1445,7 +1650,8 @@ export default function DashboardV2() {
                                   <select
                                     value={displayCategory || ''}
                                     onChange={(e) => handleCategoryChange(transaction.id, e.target.value || null)}
-                                    className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    disabled={isInitialLoading}
+                                    className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                                     style={{ width: '140px' }}
                                   >
                                     <option value="">Uncategorized</option>
@@ -1466,7 +1672,8 @@ export default function DashboardV2() {
                                           return newMap;
                                         });
                                       }}
-                                      className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                                      disabled={isInitialLoading}
+                                      className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                                       style={{ width: '140px' }}
                                     >
                                       <option value="">No secondary category</option>
@@ -1479,7 +1686,8 @@ export default function DashboardV2() {
                                   ) : (
                                     <button
                                       onClick={() => handleOpenSecondaryTagModal(transaction.id, null)}
-                                      className="inline-flex items-center justify-center px-1.5 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded border border-gray-300"
+                                      disabled={isInitialLoading}
+                                      className="inline-flex items-center justify-center px-1.5 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded border border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
                                       title="Add secondary category"
                                     >
                                       +
