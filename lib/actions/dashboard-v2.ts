@@ -302,12 +302,16 @@ export async function getSpendingOverTime(
       const month = String(date.getMonth() + 1).padStart(2, '0');
       period = `${year}-${month}`;
     } else {
-      // Weekly: YYYY-WW format
-      const year = date.getFullYear();
-      const startOfYear = new Date(year, 0, 1);
-      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-      const week = Math.floor(days / 7) + 1;
-      period = `${year}-W${String(week).padStart(2, '0')}`;
+      // Weekly: Use start of week date (Sunday) formatted as MM/DD/YY
+      const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const startOfWeek = new Date(date);
+      startOfWeek.setDate(date.getDate() - dayOfWeek); // Go back to Sunday
+      startOfWeek.setHours(0, 0, 0, 0);
+      
+      const month = String(startOfWeek.getMonth() + 1).padStart(2, '0');
+      const day = String(startOfWeek.getDate()).padStart(2, '0');
+      const year = String(startOfWeek.getFullYear()).slice(-2);
+      period = `${month}/${day}/${year}`;
     }
 
     if (!periodMap.has(period)) {
@@ -326,7 +330,18 @@ export async function getSpendingOverTime(
       total: stats.total,
       count: stats.count,
     }))
-    .sort((a, b) => a.period.localeCompare(b.period));
+    .sort((a, b) => {
+      // For monthly format (YYYY-MM), use string comparison
+      if (a.period.includes('-') && b.period.includes('-')) {
+        return a.period.localeCompare(b.period);
+      }
+      // For weekly format (MM/DD/YY), convert to date for proper sorting
+      const parseDate = (dateStr: string): Date => {
+        const [month, day, year] = dateStr.split('/');
+        return new Date(2000 + parseInt(year), parseInt(month) - 1, parseInt(day));
+      };
+      return parseDate(a.period).getTime() - parseDate(b.period).getTime();
+    });
 
   return result;
 }
@@ -358,12 +373,16 @@ export async function getSpendingByCategoryOverTime(
       const month = String(date.getMonth() + 1).padStart(2, '0');
       period = `${year}-${month}`;
     } else {
-      // Weekly: YYYY-WW format
-      const year = date.getFullYear();
-      const startOfYear = new Date(year, 0, 1);
-      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-      const week = Math.floor(days / 7) + 1;
-      period = `${year}-W${String(week).padStart(2, '0')}`;
+      // Weekly: Use start of week date (Sunday) formatted as MM/DD/YY
+      const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const startOfWeek = new Date(date);
+      startOfWeek.setDate(date.getDate() - dayOfWeek); // Go back to Sunday
+      startOfWeek.setHours(0, 0, 0, 0);
+      
+      const month = String(startOfWeek.getMonth() + 1).padStart(2, '0');
+      const day = String(startOfWeek.getDate()).padStart(2, '0');
+      const year = String(startOfWeek.getFullYear()).slice(-2);
+      period = `${month}/${day}/${year}`;
     }
 
     const category = t.category || 'Uncategorized';
@@ -399,7 +418,18 @@ export async function getSpendingByCategoryOverTime(
       });
       return data;
     })
-    .sort((a, b) => a.period.localeCompare(b.period));
+    .sort((a, b) => {
+      // For monthly format (YYYY-MM), use string comparison
+      if (a.period.includes('-') && b.period.includes('-')) {
+        return a.period.localeCompare(b.period);
+      }
+      // For weekly format (MM/DD/YY), convert to date for proper sorting
+      const parseDate = (dateStr: string): Date => {
+        const [month, day, year] = dateStr.split('/');
+        return new Date(2000 + parseInt(year), parseInt(month) - 1, parseInt(day));
+      };
+      return parseDate(a.period).getTime() - parseDate(b.period).getTime();
+    });
 
   return result;
 }
