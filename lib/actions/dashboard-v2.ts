@@ -499,33 +499,33 @@ export async function getPaginatedTransactions(
   const countQuery = buildBaseQuery(supabase, userId, filters);
   const dataQuery = buildBaseQuery(supabase, userId, filters);
 
-  // Get total count - need to rebuild the count query without the select
-  const countQueryBuilder = supabase
+  // Get total count - build query with select first, then filters
+  let countQueryBuilder = supabase
     .from('transactions_v2')
+    .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
   
   // Apply filters to count query
   if (filters.onlySpending !== false) {
-    countQueryBuilder.gt('amount_spending', 0);
+    countQueryBuilder = countQueryBuilder.gt('amount_spending', 0);
   }
   if (filters.startDate) {
-    countQueryBuilder.gte('transaction_date', filters.startDate);
+    countQueryBuilder = countQueryBuilder.gte('transaction_date', filters.startDate);
   }
   if (filters.endDate) {
-    countQueryBuilder.lte('transaction_date', filters.endDate);
+    countQueryBuilder = countQueryBuilder.lte('transaction_date', filters.endDate);
   }
   if (filters.categories && filters.categories.length > 0) {
-    countQueryBuilder.in('category', filters.categories);
+    countQueryBuilder = countQueryBuilder.in('category', filters.categories);
   } else if (filters.category) {
-    countQueryBuilder.eq('category', filters.category);
+    countQueryBuilder = countQueryBuilder.eq('category', filters.category);
   }
   if (filters.merchant) {
-    countQueryBuilder.ilike('merchant', `%${filters.merchant}%`);
+    countQueryBuilder = countQueryBuilder.ilike('merchant', `%${filters.merchant}%`);
   }
 
   // Get total count
-  const { count, error: countError } = await countQueryBuilder
-    .select('*', { count: 'exact', head: true });
+  const { count, error: countError } = await countQueryBuilder;
 
   if (countError) {
     console.error('Count query error:', countError);
