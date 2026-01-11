@@ -793,7 +793,7 @@ export default function DashboardV2() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
+                        <td className="px-6 py-3 text-sm text-gray-500">
                           {transaction.notes || '-'}
                         </td>
                       </tr>
