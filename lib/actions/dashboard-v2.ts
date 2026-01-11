@@ -109,11 +109,14 @@ async function paginateQuery<T>(
 // HELPER: Build base query with filters
 // ============================================================================
 
-function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters = {}) {
+function buildBaseQuery(supabase: any, userId: string, filters: DashboardFilters = {}, includeSelect: boolean = true) {
   let query = supabase
     .from('transactions_v2')
-    .select('*')
     .eq('user_id', userId);
+  
+  if (includeSelect) {
+    query = query.select('*');
+  }
 
   // Only spending transactions by default
   if (filters.onlySpending !== false) {
@@ -496,8 +499,9 @@ export async function getPaginatedTransactions(
   const userId = await getUserId();
 
   // Build separate queries for count and data (Supabase query builders are mutable)
-  const countQuery = buildBaseQuery(supabase, userId, filters);
-  const dataQuery = buildBaseQuery(supabase, userId, filters);
+  // For count query, don't include .select() so we can add it with count option
+  const countQuery = buildBaseQuery(supabase, userId, filters, false);
+  const dataQuery = buildBaseQuery(supabase, userId, filters, true);
 
   // Get total count
   const { count, error: countError } = await countQuery
