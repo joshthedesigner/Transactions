@@ -712,13 +712,15 @@ export default function DashboardV2() {
                         onClick={() => handleSort('merchant')}
                         className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                       >
-                        <div className="flex items-center gap-1 min-w-[120px]">
-                          <span>Merchant</span>
-                          {sortColumn === 'merchant' && (
-                            <span className="text-blue-600 flex-shrink-0">
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
+                        <div className="flex items-center gap-1 w-full">
+                          <span className="flex-1">Merchant</span>
+                          <span className="w-4 text-center flex-shrink-0">
+                            {sortColumn === 'merchant' && (
+                              <span className="text-blue-600">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </th>
                       <th
