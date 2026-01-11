@@ -148,6 +148,7 @@ export default function DashboardV2() {
         endDate: dateRange.end,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
         merchant: merchantSearch || undefined,
+        onlySpending: false, // Show all transactions (including credits/payments) in the table
       };
 
       const result = await getPaginatedTransactions(currentPage, pageSize, activeFilters, sortColumn, sortDirection);

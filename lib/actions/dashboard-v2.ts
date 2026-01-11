@@ -495,10 +495,12 @@ export async function getPaginatedTransactions(
   const supabase = await createClient();
   const userId = await getUserId();
 
-  const baseQuery = buildBaseQuery(supabase, userId, filters);
+  // Build separate queries for count and data (Supabase query builders are mutable)
+  const countQuery = buildBaseQuery(supabase, userId, filters);
+  const dataQuery = buildBaseQuery(supabase, userId, filters);
 
   // Get total count
-  const { count, error: countError } = await baseQuery
+  const { count, error: countError } = await countQuery
     .select('*', { count: 'exact', head: true });
 
   if (countError) {
@@ -520,7 +522,7 @@ export async function getPaginatedTransactions(
   const ascending = sortDirection === 'asc';
 
   // Get paginated data
-  let query = baseQuery
+  let query = dataQuery
     .select('id, transaction_date, merchant, amount_spending, category, notes')
     .order(dbColumn, { ascending });
 
