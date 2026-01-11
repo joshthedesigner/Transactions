@@ -536,8 +536,11 @@ export async function getPaginatedTransactions(
   const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
 
   if (error) {
+    console.error('Data query error:', error);
     throw new Error(`Failed to fetch transactions: ${error.message}`);
   }
+
+  console.log('Fetched transactions:', data?.length || 0, 'out of total:', total);
 
   const transactions = (data || []).map((t: any) => ({
     id: t.id,
