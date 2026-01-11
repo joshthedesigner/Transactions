@@ -503,13 +503,13 @@ export default function DashboardV2() {
             {categoryData.length > 0 ? (
               <div className="flex-1 min-h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={categoryData} margin={{ left: 0, right: 10, top: 5, bottom: 60 }}>
+                  <BarChart data={categoryData} margin={{ left: 0, right: 10, top: 5, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="category"
                     angle={-45}
                     textAnchor="end"
-                    height={100}
+                    height={80}
                     tick={{ fontSize: 12 }}
                   />
                   <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
