@@ -1,26 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-
-// ============================================================================
-// DEBOUNCE HOOK
-// ============================================================================
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
+import { useDebounce } from '@/hooks/useDebounce';
+import { useDashboardFilters } from '@/hooks/useDashboardFilters';
 import {
   BarChart,
   Bar,
@@ -49,6 +31,9 @@ import {
   bulkUpdateTransactionSecondaryCategories,
   getAllCategories,
   getAvailableSecondaryCategories,
+  getCategoriesWithSecondaries,
+  getSecondaryCategoriesForPrimary,
+  ensureSecondaryCategoryMapping,
   type DashboardMetrics,
   type CategorySpending,
   type MerchantSpending,
@@ -73,6 +58,10 @@ const CHART_COLORS = {
   secondary: '#10b981',
   accent: '#f59e0b',
 };
+
+// Constant for "Miscellaneous" secondary category (transactions with null secondary_category)
+// Internal value is '__OTHER__' for backend compatibility, but displayed as "Miscellaneous"
+const OTHER_SECONDARY = '__OTHER__' as const;
 
 // ============================================================================
 // MAIN COMPONENT
@@ -103,54 +92,55 @@ export default function DashboardV2() {
   
   // Track if categories have been loaded (don't reload on filter changes)
   const categoriesLoadedRef = useRef(false);
-  const secondaryCategoriesLoadedRef = useRef(false);
+  const categoryMappingsLoadedRef = useRef(false);
+  const initialLoadDoneRef = useRef(false);
   
   // Track date input values at focus time to prevent browser auto-fill from triggering filters
   // Store the value when input is focused, only apply filter on blur if value changed
   const dateInputValueOnFocus = useRef<{start?: string, end?: string}>({});
 
-  // Filters
-  const [filters, setFilters] = useState<DashboardFilters>({
-    onlySpending: true,
-  });
-  // Separate display state (for visual feedback) from filter state (for actual filtering)
-  const [dateRangeDisplay, setDateRangeDisplay] = useState<{ start?: string; end?: string }>({});
-  const [dateRangeFilter, setDateRangeFilter] = useState<{ start?: string; end?: string }>({});
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [pendingSelectedCategories, setPendingSelectedCategories] = useState<string[]>([]);
+  // ============================================================================
+  // FILTER STATE MANAGEMENT (Simplified - Single Source of Truth)
+  // ============================================================================
+  const {
+    filters: filterState,
+    debouncedFilters,
+    updateDateRange,
+    updateCategories,
+    updateMerchants,
+    updateTimeGranularity,
+    updateTimeViewMode,
+    updateTimeMetricType,
+    updateCategoryType,
+    updateTimeCategoryType,
+    updateOnlySpending,
+    updateSort,
+    updateCurrentPage,
+  } = useDashboardFilters();
+
+  // Separate display state for date inputs (for immediate UI feedback, doesn't trigger filters)
+  // This prevents browser auto-fill from triggering data loads
+  const [dateRangeDisplay, setDateRangeDisplay] = useState<{ start?: string; end?: string }>(() => ({
+    start: filterState.dateRange.start,
+    end: filterState.dateRange.end,
+  }));
+
+  // Pending state for category dropdown (UI-only, not applied until "Apply" is clicked)
+  // Folder-based model: Map where key = primary (folder), value = selected secondaries (items)
+  const [pendingSelectedCategories, setPendingSelectedCategories] = useState<Map<string, string[]>>(new Map());
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
-  const [selectedSecondaryCategories, setSelectedSecondaryCategories] = useState<string[]>([]);
-  const [pendingSelectedSecondaryCategories, setPendingSelectedSecondaryCategories] = useState<string[]>([]);
-  const [secondaryCategoryDropdownOpen, setSecondaryCategoryDropdownOpen] = useState(false);
-  const secondaryCategoryDropdownRef = useRef<HTMLDivElement>(null);
-  const [availableSecondaryCategories, setAvailableSecondaryCategories] = useState<string[]>([]);
-  const [selectedMerchants, setSelectedMerchants] = useState<string[]>([]);
+  
+  // Map of primary category -> array of available secondary categories
+  const [categoryMappings, setCategoryMappings] = useState<Map<string, string[]>>(new Map());
   const [merchantInputValue, setMerchantInputValue] = useState<string>('');
   const merchantDropdownRef = useRef<HTMLDivElement>(null);
-  
-  // Debounced filter values for data loading (must be after all state declarations)
-  // Only debounce the filter state, not the display state
-  const debouncedDateRange = useDebounce(dateRangeFilter, 400);
-  const debouncedSelectedCategories = useDebounce(selectedCategories, 400);
-  const debouncedSelectedSecondaryCategories = useDebounce(selectedSecondaryCategories, 400);
-  const debouncedSelectedMerchants = useDebounce(selectedMerchants, 400);
-  const [timeGranularity, setTimeGranularity] = useState<'monthly' | 'weekly'>('monthly');
-  const [timeViewMode, setTimeViewMode] = useState<'total' | 'byCategory'>('total');
-  const [timeMetricType, setTimeMetricType] = useState<'amount' | 'count'>('amount');
-  const [categoryType, setCategoryType] = useState<'primary' | 'secondary'>('primary');
-  const [timeCategoryType, setTimeCategoryType] = useState<'primary' | 'secondary'>('primary');
 
   // Pagination
-  const [currentPage, setCurrentPage] = useState(0);
   const [paginatedTransactions, setPaginatedTransactions] = useState<TransactionRow[]>([]);
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const pageSize = 25;
-  
-  // Sorting
-  const [sortColumn, setSortColumn] = useState<string>('date');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -166,6 +156,8 @@ export default function DashboardV2() {
   const [bulkEditSecondaryCategoryIsNew, setBulkEditSecondaryCategoryIsNew] = useState(false);
   const [secondaryTagModalOpen, setSecondaryTagModalOpen] = useState(false);
   const [secondaryTagModalTransactionId, setSecondaryTagModalTransactionId] = useState<number | null>(null);
+  const [secondaryTagModalPrimaryCategory, setSecondaryTagModalPrimaryCategory] = useState<string | null>(null);
+  const [secondaryTagModalAvailableSecondaries, setSecondaryTagModalAvailableSecondaries] = useState<string[]>([]);
   const [secondaryTagModalNewTag, setSecondaryTagModalNewTag] = useState<string>('');
   const [secondaryTagModalSelectedTag, setSecondaryTagModalSelectedTag] = useState<string>('');
   const [cancelConfirmModalOpen, setCancelConfirmModalOpen] = useState(false);
@@ -189,23 +181,50 @@ export default function DashboardV2() {
       setCategoryTimeSeriesLoading(true);
       setRecentTransactionsLoading(true);
 
+      // Convert folder-based Map to object for API (from debouncedFilters - single source of truth)
+      // Only include folders that have items (non-empty arrays)
+      const categorySecondaryMapObj: { [key: string]: string[] } = {};
+      debouncedFilters.selectedCategories.forEach((secondaries, primary) => {
+        if (secondaries.length > 0) {
+          categorySecondaryMapObj[primary] = secondaries;
+        }
+      });
+
+      // Build active filters - simplified: only use categorySecondaryMap
+      // Empty folders are excluded (no transactions for that primary)
+      // No folders = no filter (show all transactions)
       const activeFilters: DashboardFilters = {
-        ...filters,
-        startDate: debouncedDateRange.start,
-        endDate: debouncedDateRange.end,
-        categories: debouncedSelectedCategories.length > 0 ? debouncedSelectedCategories : undefined,
-        secondaryCategories: debouncedSelectedSecondaryCategories.length > 0 ? debouncedSelectedSecondaryCategories : undefined,
-        merchants: debouncedSelectedMerchants.length > 0 ? debouncedSelectedMerchants : undefined,
+        startDate: debouncedFilters.dateRange.start,
+        endDate: debouncedFilters.dateRange.end,
+        categorySecondaryMap: Object.keys(categorySecondaryMapObj).length > 0 ? categorySecondaryMapObj : undefined,
+        merchants: debouncedFilters.merchants.length > 0 ? debouncedFilters.merchants : undefined,
+        onlySpending: debouncedFilters.onlySpending,
       };
+
+      // Debug: Log filters being applied
+      console.log('=== FRONTEND: Building active filters ===');
+      console.log('selectedCategories:', Array.from(debouncedFilters.selectedCategories.entries()));
+      console.log('categorySecondaryMapObj:', categorySecondaryMapObj);
+      console.log('activeFilters:', JSON.stringify(activeFilters, null, 2));
 
       // Load filter-dependent data in parallel
       const dataPromises = [
         getDashboardMetrics(activeFilters).then(result => {
+          console.log('=== FRONTEND: Metrics received ===');
+          console.log('Total spending:', result.totalSpending);
+          console.log('Total transactions:', result.totalTransactions);
+          console.log('Categories covered:', result.categoriesCovered);
+          console.log('Filters sent:', JSON.stringify(activeFilters, null, 2));
           setMetrics(result);
           setMetricsLoading(false);
           return result;
+        }).catch(error => {
+          console.error('Error getting metrics:', error);
+          console.error('Error details:', error.message, error.stack);
+          setMetricsLoading(false);
+          throw error;
         }),
-        getSpendingByCategory(activeFilters, categoryType).then(result => {
+        getSpendingByCategory(activeFilters, debouncedFilters.categoryType).then(result => {
           setCategoryData(result);
           setCategoryDataLoading(false);
           return result;
@@ -215,12 +234,12 @@ export default function DashboardV2() {
           setMerchantDataLoading(false);
           return result;
         }),
-        getSpendingOverTime(timeGranularity, activeFilters).then(result => {
+        getSpendingOverTime(debouncedFilters.timeGranularity, activeFilters).then(result => {
           setTimeSeriesData(result);
           setTimeSeriesLoading(false);
           return result;
         }),
-        getSpendingByCategoryOverTime(timeGranularity, activeFilters, timeMetricType, timeCategoryType).then(result => {
+        getSpendingByCategoryOverTime(debouncedFilters.timeGranularity, activeFilters, debouncedFilters.timeMetricType, debouncedFilters.timeCategoryType).then(result => {
           setCategoryTimeSeriesData(result);
           setCategoryTimeSeriesLoading(false);
           return result;
@@ -243,13 +262,21 @@ export default function DashboardV2() {
           })
         );
       }
-      if (!secondaryCategoriesLoadedRef.current) {
+      // Load category mappings only if not already loaded (they don't depend on filters)
+      if (!categoryMappingsLoadedRef.current) {
         categoryPromises.push(
-          getAvailableSecondaryCategories().then(result => {
-            setAvailableSecondaryCategories(result);
-            secondaryCategoriesLoadedRef.current = true;
-            return result;
-          })
+          getCategoriesWithSecondaries()
+            .then(result => {
+              setCategoryMappings(result);
+              categoryMappingsLoadedRef.current = true;
+              return result;
+            })
+            .catch(error => {
+              console.error('getCategoriesWithSecondaries failed in loadData:', error);
+              setCategoryMappings(new Map());
+              categoryMappingsLoadedRef.current = true; // Mark as loaded even on error to prevent retry loop
+              return new Map();
+            })
         );
       }
 
@@ -268,21 +295,37 @@ export default function DashboardV2() {
     } finally {
       setLoading(false);
     }
-  }, [filters, debouncedDateRange, debouncedSelectedCategories, debouncedSelectedSecondaryCategories, debouncedSelectedMerchants, timeGranularity, timeViewMode, timeMetricType, categoryType, timeCategoryType]);
+  }, [debouncedFilters]); // Single dependency! No more race conditions!
 
   const loadPaginatedData = useCallback(async () => {
     try {
       setPaginatedTransactionsLoading(true);
+      
+      // Convert folder-based Map to object for API
+      // Only include folders that have items (non-empty arrays)
+      const categorySecondaryMapObj: { [key: string]: string[] } = {};
+      debouncedFilters.selectedCategories.forEach((secondaries, primary) => {
+        if (secondaries.length > 0) {
+          categorySecondaryMapObj[primary] = secondaries;
+        }
+      });
+      
+      // Build active filters - simplified: only use categorySecondaryMap
       const activeFilters: DashboardFilters = {
-        startDate: debouncedDateRange.start,
-        endDate: debouncedDateRange.end,
-        categories: debouncedSelectedCategories.length > 0 ? debouncedSelectedCategories : undefined,
-        secondaryCategories: debouncedSelectedSecondaryCategories.length > 0 ? debouncedSelectedSecondaryCategories : undefined,
-        merchants: debouncedSelectedMerchants.length > 0 ? debouncedSelectedMerchants : undefined,
+        startDate: debouncedFilters.dateRange.start,
+        endDate: debouncedFilters.dateRange.end,
+        categorySecondaryMap: Object.keys(categorySecondaryMapObj).length > 0 ? categorySecondaryMapObj : undefined,
+        merchants: debouncedFilters.merchants.length > 0 ? debouncedFilters.merchants : undefined,
         onlySpending: false, // Show all transactions (including credits/payments) in the table
       };
 
-      const result = await getPaginatedTransactions(currentPage, pageSize, activeFilters, sortColumn, sortDirection);
+      const result = await getPaginatedTransactions(
+        debouncedFilters.currentPage, 
+        pageSize, 
+        activeFilters, 
+        debouncedFilters.sortColumn, 
+        debouncedFilters.sortDirection
+      );
       setPaginatedTransactions(result.transactions);
       setTotalTransactions(result.total);
       setHasMore(result.hasMore);
@@ -291,7 +334,7 @@ export default function DashboardV2() {
     } finally {
       setPaginatedTransactionsLoading(false);
     }
-  }, [filters, debouncedDateRange, debouncedSelectedCategories, debouncedSelectedSecondaryCategories, debouncedSelectedMerchants, currentPage, sortColumn, sortDirection]);
+  }, [debouncedFilters, pageSize]); // Simplified dependencies!
 
   // Debounced merchant input for suggestions
   const debouncedMerchantInput = useDebounce(merchantInputValue, 250);
@@ -315,10 +358,15 @@ export default function DashboardV2() {
     loadMerchantSuggestions(debouncedMerchantInput);
   }, [debouncedMerchantInput, loadMerchantSuggestions]);
 
-  // Initial load
+  // Initial load and when filters change
+  // Simplified: Just watch debouncedFilters - no complex comparison logic needed!
   useEffect(() => {
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+    }
     loadData();
-  }, [loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedFilters]); // Single dependency - debouncedFilters changes when filters change
 
   // Load paginated data when page changes
   useEffect(() => {
@@ -348,12 +396,6 @@ export default function DashboardV2() {
         setCategoryDropdownOpen(false);
       }
       if (
-        secondaryCategoryDropdownRef.current &&
-        !secondaryCategoryDropdownRef.current.contains(event.target as Node)
-      ) {
-        setSecondaryCategoryDropdownOpen(false);
-      }
-      if (
         actionDropdownRef.current &&
         !actionDropdownRef.current.contains(event.target as Node)
       ) {
@@ -367,14 +409,14 @@ export default function DashboardV2() {
       }
     };
 
-    if (categoryDropdownOpen || secondaryCategoryDropdownOpen || actionDropdownOpen || merchantSuggestions.length > 0) {
+    if (categoryDropdownOpen || actionDropdownOpen || merchantSuggestions.length > 0) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [categoryDropdownOpen, secondaryCategoryDropdownOpen, actionDropdownOpen, merchantSuggestions.length]);
+  }, [categoryDropdownOpen, actionDropdownOpen, merchantSuggestions.length]);
 
   // ============================================================================
   // HANDLERS
@@ -395,19 +437,23 @@ export default function DashboardV2() {
     // Only update filter state if value changed from when user focused the input
     // This prevents browser auto-fill from triggering filters
     if (newValue !== valueOnFocus) {
-      const currentFilterValue = dateRangeFilter[field];
+      const currentFilterValue = filterState.dateRange[field];
       const finalValue = newValue || undefined;
       
       if (finalValue && finalValue !== currentFilterValue) {
         // User selected a new date - update filter state (triggers data load via debounce)
-        setDateRangeFilter(prev => ({ ...prev, [field]: finalValue }));
-        setCurrentPage(0); // Reset pagination
+        updateDateRange(
+          field === 'start' ? finalValue : filterState.dateRange.start,
+          field === 'end' ? finalValue : filterState.dateRange.end
+        );
         // Clear transactions to show loading state (will be debounced)
         setPaginatedTransactions([]);
       } else if (!finalValue && currentFilterValue) {
         // User cleared the date - update filter state
-        setDateRangeFilter(prev => ({ ...prev, [field]: undefined }));
-        setCurrentPage(0);
+        updateDateRange(
+          field === 'start' ? undefined : filterState.dateRange.start,
+          field === 'end' ? undefined : filterState.dateRange.end
+        );
         setPaginatedTransactions([]);
       }
     }
@@ -428,36 +474,82 @@ export default function DashboardV2() {
     }
   };
 
+  // Toggle primary category - folder-based model
+  // When checked, auto-check all secondaries in the folder (including "Other")
+  // When unchecked, remove the entire folder
   const handleCategoryToggle = (category: string) => {
     setPendingSelectedCategories(prev => {
-      if (prev.includes(category)) {
-        return prev.filter(c => c !== category);
+      const newMap = new Map(prev);
+      if (newMap.has(category)) {
+        // Unchecking: remove the entire folder
+        newMap.delete(category);
       } else {
-        return [...prev, category];
+        // Checking: add folder with all items (all secondaries + "Other")
+        const secondaries = categoryMappings.get(category) || [];
+        newMap.set(category, [...secondaries, OTHER_SECONDARY]);
       }
+      return newMap;
+    });
+  };
+
+  // Toggle secondary category - folder-based model
+  // Add/remove item from folder
+  const handleSecondaryCategoryToggle = (primaryCategory: string, secondaryCategory: string) => {
+    setPendingSelectedCategories(prev => {
+      const newMap = new Map(prev);
+      const currentSecondaries = newMap.get(primaryCategory) || [];
+      
+      if (currentSecondaries.includes(secondaryCategory)) {
+        // Unchecking: remove item from folder
+        const updated = currentSecondaries.filter(s => s !== secondaryCategory);
+        if (updated.length === 0) {
+          // Empty folder: remove it entirely (or keep empty? User wants: remove)
+          newMap.delete(primaryCategory);
+        } else {
+          newMap.set(primaryCategory, updated);
+        }
+      } else {
+        // Checking: add item to folder
+        // Ensure folder exists first
+        if (!newMap.has(primaryCategory)) {
+          newMap.set(primaryCategory, []);
+        }
+        newMap.set(primaryCategory, [...currentSecondaries, secondaryCategory]);
+      }
+      
+      return newMap;
     });
   };
 
   const handleSelectAllCategories = () => {
-    if (pendingSelectedCategories.length === availableCategories.length) {
-      setPendingSelectedCategories([]);
+    if (pendingSelectedCategories.size === availableCategories.length) {
+      // Deselect all: remove all folders
+      setPendingSelectedCategories(new Map());
     } else {
-      setPendingSelectedCategories([...availableCategories]);
+      // Select all: add all folders with all their items
+      const allFolders = new Map<string, string[]>();
+      availableCategories.forEach(primary => {
+        const secondaries = categoryMappings.get(primary) || [];
+        allFolders.set(primary, [...secondaries, OTHER_SECONDARY]);
+      });
+      setPendingSelectedCategories(allFolders);
     }
   };
 
   const handleApplyCategoryFilter = () => {
-    setSelectedCategories(pendingSelectedCategories);
-    setCurrentPage(0);
+    // Apply pending filters to the main filter state
+    // This will automatically trigger loadData via useEffect watching debouncedFilters
+    updateCategories(new Map(pendingSelectedCategories));
     setCategoryDropdownOpen(false);
     // Clear transactions to show loading state
     setPaginatedTransactions([]);
+    // No need to manually call loadData - useEffect will handle it!
   };
 
   const handleResetCategoryFilter = () => {
-    setPendingSelectedCategories([]);
-    setSelectedCategories([]);
-    setCurrentPage(0);
+    setPendingSelectedCategories(new Map());
+    // Reset categories in filter state
+    updateCategories(new Map());
     setCategoryDropdownOpen(false);
     // Clear transactions to show loading state
     setPaginatedTransactions([]);
@@ -469,19 +561,19 @@ export default function DashboardV2() {
   };
 
   const handleMerchantSelect = (merchant: string) => {
-    if (!selectedMerchants.includes(merchant)) {
-      setSelectedMerchants(prev => [...prev, merchant]);
+    const currentMerchants = filterState.merchants;
+    if (!currentMerchants.includes(merchant)) {
+      updateMerchants([...currentMerchants, merchant]);
     }
     setMerchantInputValue('');
     setMerchantSuggestions([]);
-    setCurrentPage(0);
     // Clear transactions to show loading state
     setPaginatedTransactions([]);
   };
 
   const handleMerchantRemove = (merchant: string) => {
-    setSelectedMerchants(prev => prev.filter(m => m !== merchant));
-    setCurrentPage(0);
+    const currentMerchants = filterState.merchants;
+    updateMerchants(currentMerchants.filter(m => m !== merchant));
     // Clear transactions to show loading state
     setPaginatedTransactions([]);
   };
@@ -492,29 +584,25 @@ export default function DashboardV2() {
   };
 
   const handleClearFilters = () => {
-    setDateRangeDisplay({});
-    setDateRangeFilter({});
-    setSelectedCategories([]);
-    setPendingSelectedCategories([]);
-    setSelectedSecondaryCategories([]);
-    setPendingSelectedSecondaryCategories([]);
-    setSelectedMerchants([]);
+    // Reset all filters using the hook
+    updateDateRange(undefined, undefined);
+    updateCategories(new Map());
+    updateMerchants([]);
+    setPendingSelectedCategories(new Map());
     setMerchantInputValue('');
-    setCurrentPage(0);
     // Clear transactions to show loading state
     setPaginatedTransactions([]);
   };
 
   const handleSort = (column: string) => {
-    if (sortColumn === column) {
+    if (filterState.sortColumn === column) {
       // Toggle direction if same column
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+      updateSort(column, filterState.sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       // New column, default to descending
-      setSortColumn(column);
-      setSortDirection('desc');
+      updateSort(column, 'desc');
     }
-    setCurrentPage(0); // Reset to first page when sorting changes
+    updateCurrentPage(0); // Reset to first page when sorting changes
   };
 
   const formatCurrency = (amount: number) => {
@@ -570,13 +658,15 @@ export default function DashboardV2() {
       return;
     }
     
-    // Ensure secondary categories are loaded
-    if (availableSecondaryCategories.length === 0) {
+    // Category mappings should already be loaded, but ensure they're up to date
+    if (categoryMappings.size === 0) {
       try {
-        const secondaryCategories = await getAvailableSecondaryCategories();
-        setAvailableSecondaryCategories(secondaryCategories);
+        console.log('Loading category mappings because size is 0...');
+        const mappings = await getCategoriesWithSecondaries();
+        console.log('Category mappings loaded:', mappings);
+        setCategoryMappings(mappings);
       } catch (e) {
-        console.error('Error loading secondary categories:', e);
+        console.error('Error loading category mappings:', e);
       }
     }
     
@@ -602,7 +692,7 @@ export default function DashboardV2() {
       : null;
     
     // Pre-populate fields
-    setBulkEditCategory(commonPrimaryCategory);
+    setBulkEditCategory(commonPrimaryCategory || '');
     setBulkEditSecondaryCategory(commonSecondaryCategory);
     setBulkEditSecondaryCategoryIsNew(false);
     
@@ -617,6 +707,27 @@ export default function DashboardV2() {
       return newMap;
     });
   };
+
+  // Helper: Check if transaction would be visible with current filter
+  const wouldTransactionBeVisible = useCallback((
+    primary: string | null,
+    secondary: string | null,
+    filter: Map<string, string[]>
+  ): boolean => {
+    // No filter = show all = visible
+    if (filter.size === 0) return true;
+    
+    // No primary = uncategorized = not visible (unless explicitly filtered)
+    if (!primary) return false;
+    
+    // Check if primary is in filter
+    const selectedSecondaries = filter.get(primary);
+    if (!selectedSecondaries) return false; // Primary not selected
+    
+    // Check if secondary matches (or is "Other")
+    const secondaryToCheck = secondary || OTHER_SECONDARY;
+    return selectedSecondaries.includes(secondaryToCheck);
+  }, []);
 
   const handleSave = async () => {
     if (editedCategories.size === 0 && editedSecondaryCategories.size === 0) {
@@ -636,12 +747,102 @@ export default function DashboardV2() {
         updates.push(updateTransactionCategory(id, category));
       });
       
-      // Update secondary categories
+      // Update secondary categories and create mappings
       Array.from(editedSecondaryCategories.entries()).forEach(([id, secondaryCategory]) => {
-        updates.push(updateTransactionSecondaryCategory(id, secondaryCategory));
+        // Get the transaction's primary category (from edited or current)
+        const transaction = paginatedTransactions.find(t => t.id === id);
+        const primaryCategory = editedCategories.get(id) ?? transaction?.category ?? null;
+        
+        // Create mapping if secondary category is being set and primary category exists
+        if (secondaryCategory && primaryCategory) {
+          updates.push(
+            ensureSecondaryCategoryMapping(primaryCategory, secondaryCategory).then(() => {
+              // Update the transaction's secondary category
+              return updateTransactionSecondaryCategory(id, secondaryCategory, primaryCategory);
+            })
+          );
+        } else {
+          updates.push(updateTransactionSecondaryCategory(id, secondaryCategory, primaryCategory));
+        }
       });
 
       await Promise.all(updates);
+
+      // AUTO-UPDATE FILTER: Add saved categories to filter if they would be hidden
+      const hasActiveFilters = debouncedFilters.selectedCategories.size > 0;
+      const combosToAdd = new Map<string, string[]>();
+
+      if (hasActiveFilters) {
+        // Check each saved secondary category
+        Array.from(editedSecondaryCategories.entries()).forEach(([id, secondaryCategory]) => {
+          const transaction = paginatedTransactions.find(t => t.id === id);
+          const primaryCategory = editedCategories.get(id) ?? transaction?.category ?? null;
+          
+          if (primaryCategory && secondaryCategory) {
+            const wouldBeVisible = wouldTransactionBeVisible(
+              primaryCategory,
+              secondaryCategory,
+              debouncedFilters.selectedCategories
+            );
+            
+            if (!wouldBeVisible) {
+              // Need to add this combo to filter
+              const existing = combosToAdd.get(primaryCategory) || [];
+              const secondaryToAdd = secondaryCategory;
+              if (!existing.includes(secondaryToAdd)) {
+                combosToAdd.set(primaryCategory, [...existing, secondaryToAdd]);
+              }
+            }
+          } else if (primaryCategory && !secondaryCategory) {
+            // Secondary category removed (set to null) - check if "Other" is needed
+            const wouldBeVisible = wouldTransactionBeVisible(
+              primaryCategory,
+              null,
+              debouncedFilters.selectedCategories
+            );
+            
+            if (!wouldBeVisible) {
+              const existing = combosToAdd.get(primaryCategory) || [];
+              if (!existing.includes(OTHER_SECONDARY)) {
+                combosToAdd.set(primaryCategory, [...existing, OTHER_SECONDARY]);
+              }
+            }
+          }
+        });
+        
+        // Also check primary category changes
+        Array.from(editedCategories.entries()).forEach(([id, primaryCategory]) => {
+          if (primaryCategory) {
+            const transaction = paginatedTransactions.find(t => t.id === id);
+            const secondaryCategory = editedSecondaryCategories.get(id) ?? transaction?.secondaryCategory ?? null;
+            
+            const wouldBeVisible = wouldTransactionBeVisible(
+              primaryCategory,
+              secondaryCategory,
+              debouncedFilters.selectedCategories
+            );
+            
+            if (!wouldBeVisible) {
+              const existing = combosToAdd.get(primaryCategory) || [];
+              const secondaryToAdd = secondaryCategory || OTHER_SECONDARY;
+              if (!existing.includes(secondaryToAdd)) {
+                combosToAdd.set(primaryCategory, [...existing, secondaryToAdd]);
+              }
+            }
+          }
+        });
+        
+        // Auto-update filter if needed
+        if (combosToAdd.size > 0) {
+          const updatedFilter = new Map(debouncedFilters.selectedCategories);
+          combosToAdd.forEach((secondaries, primary) => {
+            const existing = updatedFilter.get(primary) || [];
+            const merged = [...new Set([...existing, ...secondaries])];
+            updatedFilter.set(primary, merged);
+          });
+          updateCategories(updatedFilter);
+        }
+      }
 
       const totalUpdates = editedCategories.size + editedSecondaryCategories.size;
       setSaveMessage({ type: 'success', text: `Successfully updated ${totalUpdates} transaction(s)` });
@@ -650,10 +851,12 @@ export default function DashboardV2() {
       setEditedSecondaryCategories(new Map());
       setSelectedTransactionIds(new Set());
       
-      // Reload data and refresh secondary categories list
+      // Reload data and refresh category mappings
       await loadPaginatedData();
-      const secondaryCategories = await getAvailableSecondaryCategories();
-      setAvailableSecondaryCategories(secondaryCategories);
+      console.log('Reloading category mappings after bulk edit...');
+      const mappings = await getCategoriesWithSecondaries();
+      console.log('Category mappings reloaded:', mappings);
+      setCategoryMappings(mappings);
       
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
@@ -679,15 +882,30 @@ export default function DashboardV2() {
   };
 
   // Secondary category modal handlers
-  const handleOpenSecondaryTagModal = (transactionId: number, currentSecondaryCategory: string | null) => {
+  const handleOpenSecondaryTagModal = async (transactionId: number, currentSecondaryCategory: string | null, primaryCategory: string | null) => {
     setSecondaryTagModalTransactionId(transactionId);
+    setSecondaryTagModalPrimaryCategory(primaryCategory);
     setSecondaryTagModalSelectedTag(currentSecondaryCategory ? currentSecondaryCategory : 'no_category');
     setSecondaryTagModalNewTag('');
+    
+    // Load secondaries for this primary category
+    if (primaryCategory) {
+      try {
+        const secondaries = await getSecondaryCategoriesForPrimary(primaryCategory);
+        setSecondaryTagModalAvailableSecondaries(secondaries);
+      } catch (e) {
+        console.error('Error loading secondary categories:', e);
+        setSecondaryTagModalAvailableSecondaries([]);
+      }
+    } else {
+      setSecondaryTagModalAvailableSecondaries([]);
+    }
+    
     setSecondaryTagModalOpen(true);
   };
 
   const handleAddSecondaryTag = () => {
-    if (!secondaryTagModalTransactionId) return;
+    if (!secondaryTagModalTransactionId || !secondaryTagModalPrimaryCategory) return;
 
     const tagToSave = secondaryTagModalSelectedTag === 'create_new' 
       ? secondaryTagModalNewTag.trim()
@@ -699,13 +917,22 @@ export default function DashboardV2() {
       return; // Don't allow adding empty tag
     }
 
-    // If creating a new category, add it to availableSecondaryCategories immediately
+    // If creating a new category, add it to the modal's available secondaries and update category mappings
     if (secondaryTagModalSelectedTag === 'create_new' && tagToSave) {
-      setAvailableSecondaryCategories(prev => {
+      setSecondaryTagModalAvailableSecondaries(prev => {
         if (!prev.includes(tagToSave)) {
           return [...prev, tagToSave].sort();
         }
         return prev;
+      });
+      // Update category mappings state
+      setCategoryMappings(prev => {
+        const newMap = new Map(prev);
+        const secondaries = newMap.get(secondaryTagModalPrimaryCategory) || [];
+        if (!secondaries.includes(tagToSave)) {
+          newMap.set(secondaryTagModalPrimaryCategory, [...secondaries, tagToSave].sort());
+        }
+        return newMap;
       });
     }
 
@@ -718,46 +945,14 @@ export default function DashboardV2() {
     
     setSecondaryTagModalOpen(false);
     setSecondaryTagModalTransactionId(null);
+    setSecondaryTagModalPrimaryCategory(null);
+    setSecondaryTagModalAvailableSecondaries([]);
     setSecondaryTagModalSelectedTag('');
     setSecondaryTagModalNewTag('');
   };
 
   // Secondary category filter handlers
-  const handleSecondaryCategoryToggle = (category: string) => {
-    setPendingSelectedSecondaryCategories(prev => {
-      if (prev.includes(category)) {
-        return prev.filter(c => c !== category);
-      } else {
-        return [...prev, category];
-      }
-    });
-  };
-
-  const handleSelectAllSecondaryCategories = () => {
-    const allOptions = ['__OTHER__', ...availableSecondaryCategories];
-    if (pendingSelectedSecondaryCategories.length === allOptions.length) {
-      setPendingSelectedSecondaryCategories([]);
-    } else {
-      setPendingSelectedSecondaryCategories([...allOptions]);
-    }
-  };
-
-  const handleApplySecondaryCategoryFilter = () => {
-    setSelectedSecondaryCategories(pendingSelectedSecondaryCategories);
-    setCurrentPage(0);
-    setSecondaryCategoryDropdownOpen(false);
-    // Clear transactions to show loading state
-    setPaginatedTransactions([]);
-  };
-
-  const handleResetSecondaryCategoryFilter = () => {
-    setPendingSelectedSecondaryCategories([]);
-    setSelectedSecondaryCategories([]);
-    setCurrentPage(0);
-    setSecondaryCategoryDropdownOpen(false);
-    // Clear transactions to show loading state
-    setPaginatedTransactions([]);
-  };
+  // Old secondary category handlers removed - now handled by nested category handlers
 
   const handleBulkEditSave = async (category: string, secondaryCategory: string | null = null) => {
     if (selectedTransactionIds.size === 0) {
@@ -790,16 +985,63 @@ export default function DashboardV2() {
       const totalUpdated = results.reduce((sum, r) => sum + r.updated, 0);
 
       if (allSuccess) {
+        // AUTO-UPDATE FILTER: Add saved categories to filter if they would be hidden
+        const hasActiveFilters = debouncedFilters.selectedCategories.size > 0;
+        const combosToAdd = new Map<string, string[]>();
+
+        if (hasActiveFilters && category && secondaryCategory) {
+          // Bulk edit applies same category to all selected transactions
+          // Check if this combo would be visible
+          const wouldBeVisible = wouldTransactionBeVisible(
+            category,
+            secondaryCategory,
+            debouncedFilters.selectedCategories
+          );
+          
+          if (!wouldBeVisible) {
+            const existing = combosToAdd.get(category) || [];
+            const secondaryToAdd = secondaryCategory;
+            if (!existing.includes(secondaryToAdd)) {
+              combosToAdd.set(category, [...existing, secondaryToAdd]);
+            }
+          }
+        } else if (hasActiveFilters && category && !secondaryCategory) {
+          // Primary category only - check if "Other" is needed
+          const wouldBeVisible = wouldTransactionBeVisible(
+            category,
+            null,
+            debouncedFilters.selectedCategories
+          );
+          
+          if (!wouldBeVisible) {
+            const existing = combosToAdd.get(category) || [];
+            if (!existing.includes(OTHER_SECONDARY)) {
+              combosToAdd.set(category, [...existing, OTHER_SECONDARY]);
+            }
+          }
+        }
+        
+        // Auto-update filter if needed
+        if (combosToAdd.size > 0) {
+          const updatedFilter = new Map(debouncedFilters.selectedCategories);
+          combosToAdd.forEach((secondaries, primary) => {
+            const existing = updatedFilter.get(primary) || [];
+            const merged = [...new Set([...existing, ...secondaries])];
+            updatedFilter.set(primary, merged);
+          });
+          updateCategories(updatedFilter);
+        }
+
         setSaveMessage({ 
           type: 'success', 
           text: `Successfully updated ${totalUpdated} transaction(s)` 
         });
         setSelectedTransactionIds(new Set());
         
-        // Reload data and refresh secondary categories list
+        // Reload data and refresh category mappings
         await loadPaginatedData();
-        const secondaryCategories = await getAvailableSecondaryCategories();
-        setAvailableSecondaryCategories(secondaryCategories);
+        const mappings = await getCategoriesWithSecondaries();
+        setCategoryMappings(mappings);
         
         // Reset bulk edit state
         setBulkEditCategory('');
@@ -850,7 +1092,7 @@ export default function DashboardV2() {
           <h2 className="text-red-800 font-semibold mb-2">Error Loading Dashboard</h2>
           <p className="text-red-600">{error}</p>
           <button
-            onClick={loadData}
+            onClick={() => loadData()}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
           >
             Retry
@@ -895,8 +1137,8 @@ export default function DashboardV2() {
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
-            {/* Category Filter - Multi-select */}
-            <div className="relative w-[200px]" ref={categoryDropdownRef}>
+            {/* Category Filter - Nested (Primary with Secondary) */}
+            <div className="relative w-[250px]" ref={categoryDropdownRef}>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Categories
               </label>
@@ -905,7 +1147,7 @@ export default function DashboardV2() {
                 onClick={() => {
                   if (!categoryDropdownOpen) {
                     // Initialize pending selections with current selections when opening
-                    setPendingSelectedCategories(selectedCategories);
+                    setPendingSelectedCategories(new Map(filterState.selectedCategories));
                   }
                   setCategoryDropdownOpen(!categoryDropdownOpen);
                 }}
@@ -913,11 +1155,11 @@ export default function DashboardV2() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-left flex items-center justify-between disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="text-gray-700">
-                  {selectedCategories.length === 0
+                  {filterState.selectedCategories.size === 0
                     ? 'All Categories'
-                    : selectedCategories.length === 1
-                    ? selectedCategories[0]
-                    : `${selectedCategories.length} selected`}
+                    : filterState.selectedCategories.size === 1
+                    ? Array.from(filterState.selectedCategories.keys())[0]
+                    : `${filterState.selectedCategories.size} selected`}
                 </span>
                 <svg
                   className={`w-5 h-5 text-gray-400 transition-transform ${
@@ -941,7 +1183,7 @@ export default function DashboardV2() {
                     <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
                       <input
                         type="checkbox"
-                        checked={pendingSelectedCategories.length === availableCategories.length && availableCategories.length > 0}
+                        checked={pendingSelectedCategories.size === availableCategories.length && availableCategories.length > 0}
                         onChange={handleSelectAllCategories}
                         disabled={isInitialLoading}
                         className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
@@ -952,21 +1194,59 @@ export default function DashboardV2() {
                     </label>
                   </div>
                   <div className="p-2 overflow-y-auto flex-1 min-h-0">
-                    {availableCategories.map((cat) => (
-                      <label
-                        key={cat}
-                        className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={pendingSelectedCategories.includes(cat)}
-                          onChange={() => handleCategoryToggle(cat)}
-                          disabled={isInitialLoading}
-                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
-                        />
-                        <span className="text-sm text-gray-700">{cat}</span>
-                      </label>
-                    ))}
+                    {availableCategories.map((primaryCat) => {
+                      const isPrimarySelected = pendingSelectedCategories.has(primaryCat);
+                      const secondaries = categoryMappings.get(primaryCat) || [];
+                      const selectedSecondaries = pendingSelectedCategories.get(primaryCat) || [];
+                      const hasSecondaries = secondaries.length > 0;
+                      
+                      return (
+                        <div key={primaryCat} className="mb-1">
+                          {/* Primary Category */}
+                          <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
+                            <input
+                              type="checkbox"
+                              checked={isPrimarySelected}
+                              onChange={() => handleCategoryToggle(primaryCat)}
+                              disabled={isInitialLoading}
+                              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                            <span className="text-sm font-medium text-gray-700">{primaryCat}</span>
+                          </label>
+                          {/* Secondary Categories (nested, only show if primary is selected) */}
+                          {isPrimarySelected && (
+                            <div className="ml-6 mt-1 space-y-1">
+                              {hasSecondaries && secondaries.map((secondaryCat) => (
+                                <label
+                                  key={secondaryCat}
+                                  className="flex items-center cursor-pointer hover:bg-gray-50 p-1.5 rounded"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedSecondaries.includes(secondaryCat)}
+                                    onChange={() => handleSecondaryCategoryToggle(primaryCat, secondaryCat)}
+                                    disabled={isInitialLoading}
+                                    className="mr-2 h-3.5 w-3.5 text-green-600 focus:ring-green-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
+                                  />
+                                  <span className="text-xs text-gray-600">{secondaryCat}</span>
+                                </label>
+                              ))}
+                              {/* "Miscellaneous" option for transactions with null secondary_category */}
+                              <label className="flex items-center cursor-pointer hover:bg-gray-50 p-1.5 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSecondaries.includes(OTHER_SECONDARY)}
+                                  onChange={() => handleSecondaryCategoryToggle(primaryCat, OTHER_SECONDARY)}
+                                  disabled={isInitialLoading}
+                                  className="mr-2 h-3.5 w-3.5 text-green-600 focus:ring-green-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
+                                />
+                                <span className="text-xs text-gray-600 italic">Miscellaneous</span>
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                   <div className="p-2 border-t border-gray-200 flex items-center justify-between gap-2 flex-shrink-0">
                     <button
@@ -987,110 +1267,6 @@ export default function DashboardV2() {
                 </div>
               )}
             </div>
-            {/* Secondary Category Filter - Multi-select */}
-            <div className="relative w-[200px]" ref={secondaryCategoryDropdownRef}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Secondary Categories
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!secondaryCategoryDropdownOpen) {
-                    // Initialize pending selections with current selections when opening
-                    setPendingSelectedSecondaryCategories(selectedSecondaryCategories);
-                  }
-                  setSecondaryCategoryDropdownOpen(!secondaryCategoryDropdownOpen);
-                }}
-                disabled={isInitialLoading}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 bg-white text-left flex items-center justify-between disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span className="text-gray-700">
-                  {selectedSecondaryCategories.length === 0
-                    ? 'All Categories'
-                    : selectedSecondaryCategories.length === 1
-                    ? selectedSecondaryCategories[0] === '__OTHER__' ? 'Other' : selectedSecondaryCategories[0]
-                    : `${selectedSecondaryCategories.length} selected`}
-                </span>
-                <svg
-                  className={`w-5 h-5 text-gray-400 transition-transform ${
-                    secondaryCategoryDropdownOpen ? 'transform rotate-180' : ''
-                  }`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </button>
-              {secondaryCategoryDropdownOpen && (
-                <div className="absolute z-40 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col max-h-96">
-                  <div className="p-2 border-b border-gray-200 flex-shrink-0">
-                    <label className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded">
-                      <input
-                        type="checkbox"
-                        checked={pendingSelectedSecondaryCategories.length === (1 + availableSecondaryCategories.length) && (availableSecondaryCategories.length > 0 || pendingSelectedSecondaryCategories.includes('__OTHER__'))}
-                        onChange={handleSelectAllSecondaryCategories}
-                        disabled={isInitialLoading}
-                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                      <span className="text-sm font-medium text-gray-700">
-                        Select All
-                      </span>
-                    </label>
-                  </div>
-                  <div className="p-2 overflow-y-auto flex-1 min-h-0">
-                    <label
-                      className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={pendingSelectedSecondaryCategories.includes('__OTHER__')}
-                        onChange={() => handleSecondaryCategoryToggle('__OTHER__')}
-                        disabled={isInitialLoading}
-                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                      <span className="text-sm text-gray-700">Other</span>
-                    </label>
-                    {availableSecondaryCategories.map((tag) => (
-                      <label
-                        key={tag}
-                        className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={pendingSelectedSecondaryCategories.includes(tag)}
-                          onChange={() => handleSecondaryCategoryToggle(tag)}
-                          disabled={isInitialLoading}
-                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:cursor-not-allowed disabled:opacity-50"
-                        />
-                        <span className="text-sm text-gray-700">{tag}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="p-2 border-t border-gray-200 flex items-center justify-between gap-2 flex-shrink-0">
-                    <button
-                      onClick={handleResetSecondaryCategoryFilter}
-                      disabled={isInitialLoading}
-                      className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Reset
-                    </button>
-                    <button
-                      onClick={handleApplySecondaryCategoryFilter}
-                      disabled={isInitialLoading}
-                      className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Filter
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
             {/* Merchant Search */}
             <div className="flex-1 min-w-[200px]">
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1099,7 +1275,7 @@ export default function DashboardV2() {
               <div className="relative" ref={merchantDropdownRef}>
                 <div className="flex flex-wrap items-center gap-2 px-3 py-2 border border-gray-300 rounded-md focus-within:ring-blue-500 focus-within:border-blue-500 bg-white min-h-[42px]">
                   {/* Merchant Pills */}
-                  {selectedMerchants.map((merchant) => (
+                  {filterState.merchants.map((merchant: string) => (
                     <span
                       key={merchant}
                       className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-sm"
@@ -1123,7 +1299,7 @@ export default function DashboardV2() {
                     type="text"
                     value={merchantInputValue}
                     onChange={(e) => handleMerchantInputChange(e.target.value)}
-                    placeholder={selectedMerchants.length === 0 ? "Search merchants..." : ""}
+                    placeholder={filterState.merchants.length === 0 ? "Search merchants..." : ""}
                     disabled={isInitialLoading}
                     className="flex-1 min-w-[120px] border-0 outline-none focus:ring-0 p-0 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                   />
@@ -1146,7 +1322,7 @@ export default function DashboardV2() {
                 {merchantSuggestions.length > 0 && (
                   <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
                     {merchantSuggestions
-                      .filter(merchant => !selectedMerchants.includes(merchant))
+                      .filter(merchant => !filterState.merchants.includes(merchant))
                       .map((merchant) => (
                         <button
                           key={merchant}
@@ -1169,8 +1345,8 @@ export default function DashboardV2() {
               </label>
               <div className="relative">
                 <select
-                  value={timeGranularity}
-                  onChange={(e) => setTimeGranularity(e.target.value as 'monthly' | 'weekly')}
+                  value={filterState.timeGranularity}
+                  onChange={(e) => updateTimeGranularity(e.target.value as 'monthly' | 'weekly')}
                   disabled={isInitialLoading}
                   className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none text-left disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1262,8 +1438,8 @@ export default function DashboardV2() {
               <h2 className="text-xl font-semibold">Spending Over Time</h2>
               <div className="flex items-center gap-2">
                 <select
-                  value={timeMetricType}
-                  onChange={(e) => setTimeMetricType(e.target.value as 'amount' | 'count')}
+                  value={filterState.timeMetricType}
+                  onChange={(e) => updateTimeMetricType(e.target.value as 'amount' | 'count')}
                   disabled={isInitialLoading}
                   className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1271,8 +1447,8 @@ export default function DashboardV2() {
                   <option value="count"># Transactions</option>
                 </select>
                 <select
-                  value={timeViewMode}
-                  onChange={(e) => setTimeViewMode(e.target.value as 'total' | 'byCategory')}
+                  value={filterState.timeViewMode}
+                  onChange={(e) => updateTimeViewMode(e.target.value as 'total' | 'byCategory')}
                   disabled={isInitialLoading}
                   className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1280,8 +1456,8 @@ export default function DashboardV2() {
                   <option value="byCategory">By Category</option>
                 </select>
                 <select
-                  value={timeCategoryType}
-                  onChange={(e) => setTimeCategoryType(e.target.value as 'primary' | 'secondary')}
+                  value={filterState.timeCategoryType}
+                  onChange={(e) => updateTimeCategoryType(e.target.value as 'primary' | 'secondary')}
                   disabled={isInitialLoading}
                   className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1297,7 +1473,7 @@ export default function DashboardV2() {
                   <p className="text-sm text-gray-500">Loading chart data...</p>
                 </div>
               </div>
-            ) : (timeViewMode === 'total' && timeCategoryType === 'primary') ? (
+            ) : (filterState.timeViewMode === 'total' && filterState.timeCategoryType === 'primary') ? (
               timeSeriesData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={timeSeriesData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
@@ -1305,14 +1481,14 @@ export default function DashboardV2() {
                     <XAxis dataKey="period" tick={{ fontSize: 12 }} />
                     <YAxis 
                       tickFormatter={(value) => 
-                        timeMetricType === 'amount' 
+                        filterState.timeMetricType === 'amount' 
                           ? `$${value.toLocaleString()}` 
                           : value.toLocaleString()
                       } 
                     />
                     <Tooltip
                       formatter={(value: number) => 
-                        timeMetricType === 'amount' 
+                        filterState.timeMetricType === 'amount' 
                           ? formatCurrency(value)
                           : `${value.toLocaleString()} transactions`
                       }
@@ -1321,10 +1497,10 @@ export default function DashboardV2() {
                     <Legend />
                     <Line
                       type="monotone"
-                      dataKey={timeMetricType === 'amount' ? 'total' : 'count'}
+                      dataKey={filterState.timeMetricType === 'amount' ? 'total' : 'count'}
                       stroke={CHART_COLORS.primary}
                       strokeWidth={2}
-                      name={timeMetricType === 'amount' ? 'Total Spending' : 'Transaction Count'}
+                      name={filterState.timeMetricType === 'amount' ? 'Total Spending' : 'Transaction Count'}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -1333,7 +1509,7 @@ export default function DashboardV2() {
                   No data available
                 </div>
               )
-            ) : (timeViewMode === 'byCategory' || timeCategoryType === 'secondary') ? (
+            ) : (filterState.timeViewMode === 'byCategory' || filterState.timeCategoryType === 'secondary') ? (
               categoryTimeSeriesLoading ? (
                 <div className="h-[300px] flex items-center justify-center">
                   <div className="text-center">
@@ -1364,14 +1540,14 @@ export default function DashboardV2() {
                         <XAxis dataKey="period" tick={{ fontSize: 12 }} />
                         <YAxis 
                           tickFormatter={(value) => 
-                            timeMetricType === 'amount' 
+                            filterState.timeMetricType === 'amount' 
                               ? `$${value.toLocaleString()}` 
                               : value.toLocaleString()
                           } 
                         />
                         <Tooltip
                           formatter={(value: number) => 
-                            timeMetricType === 'amount' 
+                            filterState.timeMetricType === 'amount' 
                               ? formatCurrency(value)
                               : `${value.toLocaleString()} transactions`
                           }
@@ -1411,8 +1587,8 @@ export default function DashboardV2() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Spending by Category</h2>
               <select
-                value={categoryType}
-                onChange={(e) => setCategoryType(e.target.value as 'primary' | 'secondary')}
+                value={filterState.categoryType}
+                onChange={(e) => updateCategoryType(e.target.value as 'primary' | 'secondary')}
                 disabled={isInitialLoading}
                 className="px-3 py-1 text-sm rounded-md border border-gray-300 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -1588,9 +1764,9 @@ export default function DashboardV2() {
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Date</span>
                           <span className="w-4 text-center flex-shrink-0">
-                            {sortColumn === 'date' && (
+                            {filterState.sortColumn === 'date' && (
                               <span className="text-blue-600">
-                                {sortDirection === 'asc' ? '↑' : '↓'}
+                                {filterState.sortDirection === 'asc' ? '↑' : '↓'}
                               </span>
                             )}
                           </span>
@@ -1606,9 +1782,9 @@ export default function DashboardV2() {
                         <div className="flex items-center gap-1 w-full">
                           <span className="flex-1">Merchant</span>
                           <span className="w-4 text-center flex-shrink-0">
-                            {sortColumn === 'merchant' && (
+                            {filterState.sortColumn === 'merchant' && (
                               <span className="text-blue-600">
-                                {sortDirection === 'asc' ? '↑' : '↓'}
+                                {filterState.sortDirection === 'asc' ? '↑' : '↓'}
                               </span>
                             )}
                           </span>
@@ -1624,9 +1800,9 @@ export default function DashboardV2() {
                         <div className="flex items-center justify-end gap-1">
                           <span className="flex-1 text-right">Amount</span>
                           <span className="w-4 text-center flex-shrink-0">
-                            {sortColumn === 'amount' && (
+                            {filterState.sortColumn === 'amount' && (
                               <span className="text-blue-600">
-                                {sortDirection === 'asc' ? '↑' : '↓'}
+                                {filterState.sortDirection === 'asc' ? '↑' : '↓'}
                               </span>
                             )}
                           </span>
@@ -1642,9 +1818,9 @@ export default function DashboardV2() {
                         <div className="flex items-center gap-1">
                           <span className="flex-1">Category</span>
                           <span className="w-4 text-center flex-shrink-0">
-                            {sortColumn === 'category' && (
+                            {filterState.sortColumn === 'category' && (
                               <span className="text-blue-600">
-                                {sortDirection === 'asc' ? '↑' : '↓'}
+                                {filterState.sortDirection === 'asc' ? '↑' : '↓'}
                               </span>
                             )}
                           </span>
@@ -1670,13 +1846,12 @@ export default function DashboardV2() {
                         ? editedSecondaryCategory
                         : transaction.secondaryCategory;
                       
-                      // Collect all secondary categories including newly created ones from editedSecondaryCategories
-                      // Make sure to include the current transaction's secondary category if it exists
-                      const allSecondaryCategories = new Set([
-                        ...availableSecondaryCategories,
-                        ...Array.from(editedSecondaryCategories.values()).filter(Boolean),
-                        ...(displaySecondaryCategory ? [displaySecondaryCategory] : [])
-                      ]);
+                      // Get secondary categories for this transaction's primary category
+                      // Use edited category if available, otherwise use transaction's category
+                      const transactionPrimaryCategory = displayCategory;
+                      const allSecondaryCategories = transactionPrimaryCategory
+                        ? (categoryMappings.get(transactionPrimaryCategory) || [])
+                        : [];
                       
                       return (
                         <tr key={transaction.id} className="hover:bg-gray-50">
@@ -1738,7 +1913,7 @@ export default function DashboardV2() {
                                     </select>
                                   ) : (
                                     <button
-                                      onClick={() => handleOpenSecondaryTagModal(transaction.id, null)}
+                                      onClick={() => handleOpenSecondaryTagModal(transaction.id, null, displayCategory)}
                                       disabled={isInitialLoading}
                                       className="inline-flex items-center justify-center px-1.5 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded border border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
                                       title="Add secondary category"
@@ -1787,17 +1962,17 @@ export default function DashboardV2() {
               {/* Pagination */}
               <div className="mt-4 flex items-center justify-between">
                 <button
-                  onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
-                  disabled={currentPage === 0}
+                  onClick={() => updateCurrentPage(Math.max(0, filterState.currentPage - 1))}
+                  disabled={filterState.currentPage === 0}
                   className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
                 <span className="text-sm text-gray-600">
-                  Page {currentPage + 1} of {Math.ceil(totalTransactions / pageSize)}
+                  Page {filterState.currentPage + 1} of {Math.ceil(totalTransactions / pageSize)}
                 </span>
                 <button
-                  onClick={() => setCurrentPage(prev => prev + 1)}
+                  onClick={() => updateCurrentPage(filterState.currentPage + 1)}
                   disabled={!hasMore}
                   className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1860,7 +2035,7 @@ export default function DashboardV2() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
               >
                 <option value="no_category">No secondary category</option>
-                {availableSecondaryCategories.map((tag) => (
+                {bulkEditCategory && categoryMappings.get(bulkEditCategory)?.map((tag) => (
                   <option key={tag} value={tag}>
                     {tag}
                   </option>
@@ -1928,7 +2103,7 @@ export default function DashboardV2() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
               >
                 <option value="no_category">No secondary category</option>
-                {availableSecondaryCategories.map((tag) => (
+                {secondaryTagModalAvailableSecondaries.map((tag) => (
                   <option key={tag} value={tag}>
                     {tag}
                   </option>

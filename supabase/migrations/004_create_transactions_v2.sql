@@ -86,29 +86,29 @@ CREATE TABLE IF NOT EXISTS transactions_v2 (
 -- ============================================================================
 
 -- Primary query index: Get all spending for a user
-CREATE INDEX idx_transactions_v2_user_spending 
+CREATE INDEX IF NOT EXISTS idx_transactions_v2_user_spending 
   ON transactions_v2(user_id, amount_spending) 
   WHERE amount_spending > 0;
 -- Why: Dashboard query: SELECT SUM(amount_spending) WHERE user_id = X
 -- Partial index (WHERE clause) makes it smaller and faster
 
 -- Date range queries
-CREATE INDEX idx_transactions_v2_user_date 
+CREATE INDEX IF NOT EXISTS idx_transactions_v2_user_date 
   ON transactions_v2(user_id, transaction_date DESC);
 -- Why: Recent transactions, date filters
 
 -- Merchant aggregation
-CREATE INDEX idx_transactions_v2_user_merchant 
+CREATE INDEX IF NOT EXISTS idx_transactions_v2_user_merchant 
   ON transactions_v2(user_id, merchant);
 -- Why: Group by merchant, search by merchant
 
 -- Duplicate detection
-CREATE INDEX idx_transactions_v2_file_hash 
+CREATE INDEX IF NOT EXISTS idx_transactions_v2_file_hash 
   ON transactions_v2(user_id, source_file_hash);
 -- Why: Fast lookup to check if file already uploaded
 
 -- Source file queries
-CREATE INDEX idx_transactions_v2_user_source 
+CREATE INDEX IF NOT EXISTS idx_transactions_v2_user_source 
   ON transactions_v2(user_id, source_filename);
 -- Why: List files, filter by file
 
@@ -117,6 +117,8 @@ CREATE INDEX idx_transactions_v2_user_source
 -- ============================================================================
 
 -- Constraint: amount_spending must match is_credit/is_payment flags
+ALTER TABLE transactions_v2 
+  DROP CONSTRAINT IF EXISTS chk_spending_flags;
 ALTER TABLE transactions_v2 
   ADD CONSTRAINT chk_spending_flags 
   CHECK (
@@ -129,11 +131,15 @@ ALTER TABLE transactions_v2
 
 -- Constraint: merchant cannot be empty
 ALTER TABLE transactions_v2 
+  DROP CONSTRAINT IF EXISTS chk_merchant_not_empty;
+ALTER TABLE transactions_v2 
   ADD CONSTRAINT chk_merchant_not_empty 
   CHECK (LENGTH(TRIM(merchant)) > 0);
 -- Why: Every transaction must have a merchant
 
 -- Constraint: date cannot be in far future (sanity check)
+ALTER TABLE transactions_v2 
+  DROP CONSTRAINT IF EXISTS chk_date_reasonable;
 ALTER TABLE transactions_v2 
   ADD CONSTRAINT chk_date_reasonable 
   CHECK (transaction_date <= CURRENT_DATE + INTERVAL '30 days');
@@ -146,22 +152,26 @@ ALTER TABLE transactions_v2
 ALTER TABLE transactions_v2 ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Users can only see their own transactions
+DROP POLICY IF EXISTS "Users can view their own transactions_v2" ON transactions_v2;
 CREATE POLICY "Users can view their own transactions_v2"
   ON transactions_v2 FOR SELECT
   USING (auth.uid() = user_id);
 
 -- Policy: Users can only insert their own transactions
+DROP POLICY IF EXISTS "Users can insert their own transactions_v2" ON transactions_v2;
 CREATE POLICY "Users can insert their own transactions_v2"
   ON transactions_v2 FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
 -- Policy: Users can only update their own transactions
+DROP POLICY IF EXISTS "Users can update their own transactions_v2" ON transactions_v2;
 CREATE POLICY "Users can update their own transactions_v2"
   ON transactions_v2 FOR UPDATE
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
 -- Policy: Users can only delete their own transactions
+DROP POLICY IF EXISTS "Users can delete their own transactions_v2" ON transactions_v2;
 CREATE POLICY "Users can delete their own transactions_v2"
   ON transactions_v2 FOR DELETE
   USING (auth.uid() = user_id);
